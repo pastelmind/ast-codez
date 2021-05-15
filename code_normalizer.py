@@ -1,9 +1,11 @@
 import ast
-import astor
 import sys
 import typing
 
+import astor
+
 from function_extractor import extract_functions_from_file
+from idiom_loader import IdiomDatabase, load_idioms
 
 
 class CodeNormalizer(ast.NodeTransformer):
@@ -15,7 +17,7 @@ class CodeNormalizer(ast.NodeTransformer):
     - We don't override import from because there's no point!
     """
 
-    def __init__(self):
+    def __init__(self, idioms: IdiomDatabase):
         super().__init__()
         # Note: Since functions are first-class objects in Python, we can't
         # distinguish function names from variable names.
@@ -23,8 +25,12 @@ class CodeNormalizer(ast.NodeTransformer):
         self._literals_seen_float: typing.Dict[float, str] = {}
         self._literals_seen_int: typing.Dict[int, str] = {}
         self._literals_seen_str: typing.Dict[str, str] = {}
+        self._idioms = idioms
 
     def _get_replacement_identifier(self, identifier: str) -> str:
+        if identifier in self._idioms.identifiers:
+            return identifier
+
         try:
             return self._identifiers_seen[identifier]
         except KeyError:
@@ -96,22 +102,26 @@ class CodeNormalizer(ast.NodeTransformer):
         # Don't use isinstance() because bool() is a subtype of int() in Python
         # wtf...
         if type(node.value) is float:
-            return ast.Name(self._get_replacement_float(node.value), ctx=ast.Load)
+            if node.value not in self._idioms.floats:
+                return ast.Name(self._get_replacement_float(node.value), ctx=ast.Load())
         elif type(node.value) is int:
-            return ast.Name(self._get_replacement_int(node.value), ctx=ast.Load)
+            if node.value not in self._idioms.ints:
+                return ast.Name(self._get_replacement_int(node.value), ctx=ast.Load())
         elif type(node.value) is str:
-            return ast.Name(self._get_replacement_str(node.value), ctx=ast.Load)
-        else:
-            return node
+            if node.value not in self._idioms.strings:
+                return ast.Name(self._get_replacement_str(node.value), ctx=ast.Load())
+
+        return node
 
 
 if __name__ == "__main__":
     functions = extract_functions_from_file(sys.argv[1])
 
+    idioms = load_idioms()
     for name, code in functions.items():
         print("-" * 80)
         print(f"{name}()\n")
         print(f'{"Original: ":-<80}')
         print(code)
         print(f'{"Normalized: ":-<80}')
-        print(astor.to_source(CodeNormalizer().visit(ast.parse(code))))
+        print(astor.to_source(CodeNormalizer(idioms=idioms).visit(ast.parse(code))))
