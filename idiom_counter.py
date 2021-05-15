@@ -130,14 +130,14 @@ if __name__ == "__main__":
     for identifier, count in identifiers_cutoff:
         print(f"{count}: {identifier}")
 
-    cutoff = min(200, len(collector._literals_seen_float))
+    cutoff = min(50, len(collector._literals_seen_float))
     print(HORIZONTAL_BAR)
     print(f"Top {cutoff} floats:")
     float_cutoff = collector._literals_seen_float.most_common(cutoff)
     for value, count in float_cutoff:
         print(f"{count}: {value!r}")
 
-    cutoff = min(200, len(collector._literals_seen_int))
+    cutoff = min(50, len(collector._literals_seen_int))
     print(HORIZONTAL_BAR)
     print(f"Top {cutoff} ints:")
     int_cutoff = collector._literals_seen_int.most_common(cutoff)
