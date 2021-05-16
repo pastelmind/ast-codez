@@ -56,16 +56,24 @@ def python_code_oneline(code):
             prev_pos = tok.end 
     # return new_tokens
     # print(new_tokens)
-    res = " " * (new_tokens[len(new_tokens) - 1][3][1] - new_tokens[0][3][1])
+    # res = [" "] * (new_tokens[len(new_tokens) - 1][3][1] - new_tokens[0][3][1])
+    res = []
     # prev_pos = new_tokens[0][3]
-    for tok in new_tokens:
-        if tok[0] != 62: # skip encoding
-            # res += tok[1] + " "* (tok[2][1] - prev_pos[1])
-            res = res[:tok[2][1]] + tok[1] + res[tok[2][1]:]
-            # print("str: ", len(tok[1]))
-            # print("prev, cur, res: ", prev_pos, tok[3], res)
-            prev_pos = tok[3]
-    return res
+    for i in range(1, len(new_tokens)):
+        # if new_tokens[i][0] != 62: # skip encoding
+        # put string onto the res index
+        # res = res[:tok[2][1]] + tok[1] + res[tok[2][1]:]
+        if new_tokens[i-1][0] == 62:
+            res.append(new_tokens[i][1]) # just add string for beginning of code
+        else:
+            for j in range(new_tokens[i][2][1] - new_tokens[i-1][3][1]):
+                res.append(" ")
+            res.append(new_tokens[i][1])
+        # print("str: ", len(tok[1]))
+        # print("prev, cur, res: ", prev_pos, tok[3], res)
+        prev_pos = new_tokens[i][3]
+    final_res = ''.join(str(v) for v in res)
+    return final_res
     # return tokenize.untokenize(new_tokens).decode('utf-8')
 
 print(python_code_oneline(ex_input))
