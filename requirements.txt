@@ -5,3 +5,4 @@ colorama~=0.4
 jsonlines>=2
 parso~=0.8.2
 requests>=2.25
+scrapy~=2.5.0
