@@ -10,3 +10,4 @@ toml==0.10.2
 pandas
 google-cloud-bigquery
 jsonlines
+requests==2.25.1
