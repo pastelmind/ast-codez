@@ -121,6 +121,7 @@ def do_crawl(*, gzipped_commits: str, output_file: str):
                     )
                     if result is not None:
                         print(f"Downloaded {row_index=} / {row_count}, {file_index=}")
+                        print(f"    added to {output_file}")
                         writer.write(result)
                 except KeyboardInterrupt:
                     raise
@@ -132,7 +133,9 @@ def do_crawl(*, gzipped_commits: str, output_file: str):
 
 
 if __name__ == "__main__":
+    file_number = int(input("Enter file number (0-4): "))
+    chunk_number = int(input("Enter chunk number (0-2): "))
     do_crawl(
-        gzipped_commits="mined_commits/mined_commits_2.000000000001.jsonl.gz",
-        output_file="output/data1.jsonl",
+        gzipped_commits=f"mined_commits/mined_commits_2.00000000000{file_number}.chunk{chunk_number}.jsonl.gz",
+        output_file=f"output/data{file_number}.chunk{chunk_number}.jsonl",
     )
