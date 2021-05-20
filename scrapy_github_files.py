@@ -15,6 +15,7 @@ import typing
 
 import jsonlines
 import scrapy
+import fake_useragent
 
 
 def select_chunk_file() -> typing.Tuple[pathlib.Path, int]:
@@ -112,15 +113,9 @@ class GithubFilesSpider(scrapy.Spider):
     custom_settings = {
         # These settings should help us avoid getting banned
         "AUTOTHROTTLE_ENABLED": True,
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 10,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 2,
         "COOKIES_ENABLED": False,
-        "USER_AGENT": random.choice(
-            [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36 Edg/90.0.818.62",
-            ]
-        ),
+        "USER_AGENT": fake_useragent.UserAgent().random,
         "FEEDS": {
             f"../github_file_changes/file_changes_chunk{CHUNK_NUMBER}.jsonl": {
                 "format": "jsonlines",
