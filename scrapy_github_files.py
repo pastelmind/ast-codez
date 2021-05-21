@@ -158,7 +158,7 @@ class GithubFilesSpider(scrapy.Spider):
     custom_settings = {
         # These settings should help us avoid getting banned
         "AUTOTHROTTLE_ENABLED": True,
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 2,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
         "USER_AGENT": fake_useragent.UserAgent().random,
         "FEEDS": {
