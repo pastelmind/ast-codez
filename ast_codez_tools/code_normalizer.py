@@ -117,6 +117,16 @@ class CodeNormalizer(ast.NodeTransformer):
 
         return node
 
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:
+        # We must not replace Constant string components in f-strings.
+        node.values = [
+            child_node
+            if isinstance(child_node, ast.Constant)
+            else self.generic_visit(child_node)
+            for child_node in node.values
+        ]
+        return node
+
 
 def main():
     from .function_extractor import extract_functions_from_file
