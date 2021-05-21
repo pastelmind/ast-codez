@@ -13,9 +13,9 @@ import random
 import re
 import typing
 
+import fake_useragent
 import jsonlines
 import scrapy
-import fake_useragent
 
 
 def select_chunk_file() -> typing.Tuple[pathlib.Path, int]:
@@ -101,9 +101,54 @@ def generate_diff_infos(*, row: dict) -> typing.Iterator[dict]:
         }
 
 
+class DownloadedChangeEntry(typing.NamedTuple):
+    repository: str
+    # Commit SHA before the change
+    commit_before: str
+    # Commit SHA after the
+    commit_after: str
+    # Path of the file before the change
+    file_before: str
+    # Path of the file after the change
+    file_after: str
+
+    @classmethod
+    def from_dict(cls, raw_entry: typing.Dict[str, str]) -> "DownloadedChangeEntry":
+        """Creates a DownloadedChangeEntry from a dictionary."""
+        return cls(
+            repository=raw_entry["repository"],
+            commit_before=raw_entry["commit_before"],
+            commit_after=raw_entry["commit_after"],
+            file_before=raw_entry["file_before"],
+            file_after=raw_entry["file_after"],
+        )
+
+
+def load_downloaded_entry_infos(
+    *, downloaded_data_file: typing.Union[str, os.PathLike]
+) -> typing.Set[DownloadedChangeEntry]:
+    """Returns a set of Change Entries that are already downloaded.
+
+    Loads a JSON Lines file containing Change Entries that have been downloaded
+    so far, and extracts a set of DownloadedChangeEntry objects.
+    This can be used to skip crawling entries that have already downloaded when
+    resuming from a crash.
+
+    If `downloaded_data_file` does not exist, returns an empty set.
+    """
+    try:
+        with jsonlines.open(downloaded_data_file, mode="r") as lines:
+            return {DownloadedChangeEntry.from_dict(raw_entry) for raw_entry in lines}
+    except FileNotFoundError:
+        return set()
+
+
 # Must request chunk file name here to configure spider before it is picked up
 # by Scrapy!
 CHUNK_FILE_NAME, CHUNK_NUMBER = select_chunk_file()
+OUTPUT_FILE_PATH = pathlib.Path(
+    f"../github_file_changes/file_changes_chunk{CHUNK_NUMBER}.jsonl"
+)
 
 
 class GithubFilesSpider(scrapy.Spider):
@@ -117,7 +162,7 @@ class GithubFilesSpider(scrapy.Spider):
         "COOKIES_ENABLED": False,
         "USER_AGENT": fake_useragent.UserAgent().random,
         "FEEDS": {
-            f"../github_file_changes/file_changes_chunk{CHUNK_NUMBER}.jsonl": {
+            OUTPUT_FILE_PATH: {
                 "format": "jsonlines",
             },
         },
@@ -125,9 +170,18 @@ class GithubFilesSpider(scrapy.Spider):
         "LOG_LEVEL": logging.INFO,
     }
     CHUNK_FILE_NAME = CHUNK_FILE_NAME
+    OUTPUT_FILE_PATH = OUTPUT_FILE_PATH
 
     def start_requests(self):
         ROW_COUNT = sum(1 for _ in load_gzipped_lines(file_name=self.CHUNK_FILE_NAME))
+
+        # For resuming interrupted crawling sessions
+        downloaded_changes = load_downloaded_entry_infos(
+            downloaded_data_file=self.OUTPUT_FILE_PATH
+        )
+        logging.info(
+            f"Found {len(downloaded_changes)} change entries that were downloaded in a previous run"
+        )
 
         for row_index, row in enumerate(
             load_gzipped_lines(file_name=self.CHUNK_FILE_NAME)
@@ -137,6 +191,12 @@ class GithubFilesSpider(scrapy.Spider):
             for diff_num, diff_entry in enumerate(
                 generate_diff_infos(row=row), start=1
             ):
+                if DownloadedChangeEntry.from_dict(diff_entry) in downloaded_changes:
+                    logging.info(
+                        f"Skipping already downloaded commit {row_index + 1} / {ROW_COUNT}, file {diff_num} / {len(diff_infos)}"
+                    )
+                    continue
+
                 logging.info(
                     f"Crawling commit {row_index + 1} / {ROW_COUNT}, file {diff_num} / {len(diff_infos)}"
                 )
