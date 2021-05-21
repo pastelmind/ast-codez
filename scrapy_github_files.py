@@ -158,6 +158,20 @@ class GithubFilesSpider(scrapy.Spider):
     custom_settings = {
         # These settings should help us avoid getting banned
         "AUTOTHROTTLE_ENABLED": True,
+        # Repositories that have been deleted return 404 errors. These responses
+        # are not saved in the output JSON Lines file.
+        # When the spider resumes from an interrupted run, it attempts to crawl
+        # these repositories again, running into many 404 errors. This is OK.
+        # Unfortunately, AutoThrottle ignores 404 errors when adjusting the
+        # delay, which causes Scrapy to retain the 5-second delay until the
+        # first non-404 response is found. This can cause the spider to slow
+        # down a lot.
+        # We explicitly set the initial download delay to a small value to avoid
+        # this phenomenon.
+        # Note: This could also be solved by remembering the 404 result, or by
+        # fetching a fork that is still alive. But I don't have time to do
+        # either right now.
+        "AUTOTHROTTLE_START_DELAY": 0.5,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
         "USER_AGENT": fake_useragent.UserAgent().random,
