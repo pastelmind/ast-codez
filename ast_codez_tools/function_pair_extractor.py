@@ -40,15 +40,31 @@ We make some big assumptions to make things easy:
 """
 
 import ast
+import logging
 import sys
 import typing
-import warnings
-from function_extractor import extract_functions
+
+from .function_extractor import extract_functions
 
 
 def extract_function_pairs(
     *, before_code: str, before_name: str, after_code: str, after_name: str
-) -> typing.Iterable[typing.Tuple[str, str, str]]:
+) -> typing.Iterator[typing.Tuple[str, str, str]]:
+    """Extracts function pairs from `before_code` and `after_code`
+
+    Args:
+        before_code:
+            Python code before changes
+        before_name:
+            Name of the script file before changes, used only for messages
+        after_code:
+            Python code before changes
+        after_name:
+            Name of the script file after changes, used only for messages
+
+    Yields:
+        Tuple of (func_name, before_func_code, after_func_code)
+    """
     before_node = ast.parse(before_code, filename=before_name)
     before_functions = extract_functions(before_node, before_name)
     after_node = ast.parse(after_code, filename=after_name)
@@ -59,7 +75,7 @@ def extract_function_pairs(
         try:
             after_func_code = after_functions[func_name]
         except KeyError:
-            warnings.warn(
+            logging.debug(
                 f"Missing function in <after>: {func_name}() is present in {before_name} but missing in {after_name}"
             )
         else:
@@ -69,18 +85,26 @@ def extract_function_pairs(
     # This is just for warnings
     for func_name, after_func_code in after_functions.items():
         if func_name not in before_functions_seen:
-            warnings.warn(
+            logging.debug(
                 f"Missing function in <before>: {func_name}() is missing in {before_name} but present in {after_name}"
             )
 
 
-if __name__ == "__main__":
-    before_name = sys.argv[1]
-    after_name = sys.argv[2]
-    with open(before_name, encoding="utf8") as before_file:
-        before_code = before_file.read()
-    with open(after_name, encoding="utf8") as after_file:
-        after_code = after_file.read()
+def main(argv: typing.Optional[typing.Sequence[str]] = None):
+    import argparse
+    import pathlib
+
+    parser = argparse.ArgumentParser(
+        prog="python -m ast_codez_tools." + pathlib.Path(__file__).stem
+    )
+    parser.add_argument("before_file", help="Path to Python file before changes")
+    parser.add_argument("after_file", help="Path to Python file after changes")
+    args = parser.parse_args(argv)
+
+    before_name: str = args.before_file
+    after_name: str = args.after_file
+    before_code = pathlib.Path(before_name).read_text(encoding="utf8")
+    after_code = pathlib.Path(after_name).read_text(encoding="utf8")
 
     for func_name, func_before, func_after in extract_function_pairs(
         before_code=before_code,
@@ -96,3 +120,7 @@ if __name__ == "__main__":
             print(func_before)
             print(f'{"After: ":-<80}')
             print(func_after)
+
+
+if __name__ == "__main__":
+    main()

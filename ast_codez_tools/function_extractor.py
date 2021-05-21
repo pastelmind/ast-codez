@@ -4,10 +4,11 @@ methods.
 """
 
 import ast
-import astor
-import typing
 import sys
+import typing
 import warnings
+
+import astor
 
 
 def extract_functions(
@@ -140,7 +141,7 @@ class FunctionExtractor(ast.NodeVisitor):
         return node
 
 
-if __name__ == "__main__":
+def main():
     functions = extract_functions_from_file(sys.argv[1])
 
     for name, node in functions.items():
@@ -149,3 +150,7 @@ if __name__ == "__main__":
         print("-" * 80)
         print(node)
         print()
+
+
+if __name__ == "__main__":
+    main()

@@ -4,8 +4,12 @@ import typing
 
 import astor
 
-from function_extractor import extract_functions_from_file
 from idiom_loader import IdiomDatabase, load_idioms
+
+
+def normalize_with_idioms(code: str, *, idioms: IdiomDatabase) -> str:
+    """Normalizes Python code, skipping those in the `idioms` database."""
+    return astor.to_source(CodeNormalizer(idioms=idioms).visit(ast.parse(code)))
 
 
 class CodeNormalizer(ast.NodeTransformer):
@@ -114,7 +118,9 @@ class CodeNormalizer(ast.NodeTransformer):
         return node
 
 
-if __name__ == "__main__":
+def main():
+    from .function_extractor import extract_functions_from_file
+
     functions = extract_functions_from_file(sys.argv[1])
 
     idioms = load_idioms()
@@ -124,4 +130,8 @@ if __name__ == "__main__":
         print(f'{"Original: ":-<80}')
         print(code)
         print(f'{"Normalized: ":-<80}')
-        print(astor.to_source(CodeNormalizer(idioms=idioms).visit(ast.parse(code))))
+        print(normalize_with_idioms(code, idioms=idioms))
+
+
+if __name__ == "__main__":
+    main()
