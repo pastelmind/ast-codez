@@ -10,6 +10,8 @@ import warnings
 
 import astor
 
+from ast_codez_tools.literal_statement_remover import remove_literal_statements
+
 
 def extract_functions(
     node: ast.AST, filename: typing.Optional[str] = None
@@ -23,7 +25,7 @@ def extract_functions(
     Returns:
         Dictionary that maps function names to (cleaned) function code.
     """
-    cleaned_node = DocstringRemover().visit(node)
+    cleaned_node = remove_literal_statements(node)
     extractor = FunctionExtractor(name_prefix=f"{filename}:" if filename else None)
     extractor.visit(cleaned_node)
     return {
@@ -45,35 +47,6 @@ def extract_functions_from_file(filename: str) -> "dict[str, str]":
         source_code = source_file.read()
     node = ast.parse(source_code, filename=filename)
     return extract_functions(node, filename)
-
-
-class DocstringRemover(ast.NodeTransformer):
-    """Removes docstrings from functions and classes."""
-
-    @staticmethod
-    def _remove_docstring(
-        node: typing.Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef]
-    ) -> None:
-        if node.body:
-            first_child = node.body[0]
-            if (
-                isinstance(first_child, ast.Expr)
-                and isinstance(first_child.value, ast.Constant)
-                and isinstance(first_child.value.value, str)
-            ):
-                node.body.pop(0)
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        self._remove_docstring(node)
-        return self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-        self._remove_docstring(node)
-        return self.generic_visit(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
-        self._remove_docstring(node)
-        return self.generic_visit(node)
 
 
 class FunctionExtractor(ast.NodeVisitor):
