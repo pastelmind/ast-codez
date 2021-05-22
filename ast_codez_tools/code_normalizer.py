@@ -29,6 +29,7 @@ class CodeNormalizer(ast.NodeTransformer):
         self._literals_seen_float: typing.Dict[float, str] = {}
         self._literals_seen_int: typing.Dict[int, str] = {}
         self._literals_seen_str: typing.Dict[str, str] = {}
+        self._f_strings_seen: typing.Dict[str, str] = {}
         self._idioms = idioms
 
     def _get_replacement_identifier(self, identifier: str) -> str:
@@ -69,6 +70,14 @@ class CodeNormalizer(ast.NodeTransformer):
                 literal
             ] = f"STR_{len(self._literals_seen_str)}"
             return replacement
+
+    def _get_replacement_f_string(self, node: ast.JoinedStr) -> str:
+        # There is no easy way to compare two AST nodes for equality.
+        # Instead we compare their serialized forms
+        code = ast.unparse(node)
+        return self._f_strings_seen.setdefault(
+            code, f"F_STR_{len(self._f_strings_seen)}"
+        )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.name = self._get_replacement_identifier(node.name)
@@ -118,14 +127,10 @@ class CodeNormalizer(ast.NodeTransformer):
         return node
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:
-        # We must not replace Constant string components in f-strings.
-        node.values = [
-            child_node
-            if isinstance(child_node, ast.Constant)
-            else self.generic_visit(child_node)
-            for child_node in node.values
-        ]
-        return node
+        # f-strings are difficult (if not impossible) to normalize.
+        # So we basically cheat here by replacing the entire f-string with a
+        # unique identifier.
+        return ast.Name(self._get_replacement_f_string(node), ctx=ast.Load())
 
 
 def main():
