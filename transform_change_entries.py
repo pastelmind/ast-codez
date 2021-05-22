@@ -24,6 +24,7 @@ Steps for each change entry:
       limited vocabulary.
     - Converts Python code to a single-line representation so that seq2seq can
       recognize semantically significant tokens (e.g. indents) as words.
+    - If either the before_code or after_code has > 50 tokens, exclude them.
 
 5. Exclude normalized function pairs that are identical.
     This leaves us with function pairs that have changes.
@@ -42,16 +43,14 @@ from ast_codez_tools.code_normalizer import CodeNormalizer
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
 from idiom_loader import IdiomDatabase, load_idioms
 
+MAX_TOKEN_COUNT = 50
+
 
 def yield_changed_entries(
     *, changed_entries_file: str
 ) -> typing.Iterator[typing.Dict[str, str]]:
     with jsonlines.open(changed_entries_file, mode="r") as rows:
         yield from rows
-
-
-_HORIZONTAL_BAR = "-" * 80
-_HORIZONTAL_DOUBLE_BAR = "=" * 80
 
 
 class NormalizedFunctionChangeEntry(typing.NamedTuple):
@@ -99,11 +98,15 @@ def extract_normalized_function_changes(
                     )
                     continue
 
-                normalized_before_code, normalized_after_code = normalize_code_pair(
-                    idioms=idioms,
-                    before_code=func_code_before,
-                    after_code=func_code_after,
-                )
+                try:
+                    normalized_before_code, normalized_after_code = normalize_code_pair(
+                        idioms=idioms,
+                        before_code=func_code_before,
+                        after_code=func_code_after,
+                    )
+                except TooManyTokensError:
+                    continue
+
                 if normalized_before_code == normalized_after_code:
                     logging.info(
                         f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{func_name}()"
@@ -144,12 +147,24 @@ def normalize_code_pair(
     )
 
 
+class TooManyTokensError(ValueError):
+    """Raised when the input code has too many tokens."""
+
+
 def transform_to_oneline(code: str) -> str:
     """Transforms the given Python code to a single-line representation."""
 
     def tokenize_to_one_liner(code: str) -> typing.Iterator[str]:
         # I took inspiration from Nabila's code
-        for tok in tokenize.generate_tokens(io.StringIO(code).readline):
+        for token_count, tok in enumerate(
+            tokenize.generate_tokens(io.StringIO(code).readline), start=1
+        ):
+            # seq2seq accepts <= 50 words per sequence.
+            # We could configure the model to accept longer sequences, but it's
+            # probably better to stick to what the original authors used
+            if token_count > MAX_TOKEN_COUNT:
+                raise TooManyTokensError()
+
             # Strip comments and logically insignificant newlines
             if tok.type == tokenize.NL or tok.type == tokenize.COMMENT:
                 continue
