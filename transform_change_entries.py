@@ -154,17 +154,9 @@ class TooManyTokensError(ValueError):
 def transform_to_oneline(code: str) -> str:
     """Transforms the given Python code to a single-line representation."""
 
-    def tokenize_to_one_liner(code: str) -> typing.Iterator[str]:
+    def generate_token_strings(code: str) -> typing.Iterator[str]:
         # I took inspiration from Nabila's code
-        for token_count, tok in enumerate(
-            tokenize.generate_tokens(io.StringIO(code).readline), start=1
-        ):
-            # seq2seq accepts <= 50 words per sequence.
-            # We could configure the model to accept longer sequences, but it's
-            # probably better to stick to what the original authors used
-            if token_count > MAX_TOKEN_COUNT:
-                raise TooManyTokensError()
-
+        for tok in tokenize.generate_tokens(io.StringIO(code).readline):
             # Strip comments and logically insignificant newlines
             if tok.type == tokenize.NL or tok.type == tokenize.COMMENT:
                 continue
@@ -178,7 +170,17 @@ def transform_to_oneline(code: str) -> str:
             else:
                 yield tok.string
 
-    one_liner = " ".join(tokenize_to_one_liner(code))
+    # Count tokens after removing NL and COMMENT
+    def limit_token_count(token_strings: typing.Iterable[str]) -> typing.Iterator[str]:
+        for token_count, tok_str in enumerate(token_strings, start=1):
+            # seq2seq accepts <= 50 words per sequence.
+            # We could configure the model to accept longer sequences, but it's
+            # probably better to stick to what the original authors used
+            if token_count > MAX_TOKEN_COUNT:
+                raise TooManyTokensError()
+            yield tok_str
+
+    one_liner = " ".join(limit_token_count(generate_token_strings(code)))
     assert "\n" not in one_liner, (
         f"Cannot transform code to one-liner:\n"
         + "-" * 80
