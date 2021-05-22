@@ -60,6 +60,13 @@ class NormalizedFunctionChangeEntry(typing.NamedTuple):
     after_code: str
 
 
+def sanitize_code(code: str) -> str:
+    """Apparently, some of the downloaded code contains null bytes?
+    Not sure how they snuck into code.
+    In any case, this removes it."""
+    return code.replace("\0", "")
+
+
 def extract_normalized_function_changes(
     *, changed_entries_file: str
 ) -> typing.Iterator[NormalizedFunctionChangeEntry]:
@@ -75,8 +82,8 @@ def extract_normalized_function_changes(
         commit_after = row["commit_after"]
         file_before = row["file_before"]
         file_after = row["file_after"]
-        code_before = row["code_before"]
-        code_after = row["code_after"]
+        code_before = sanitize_code(row["code_before"])
+        code_after = sanitize_code(row["code_after"])
 
         try:
             for func_name, func_code_before, func_code_after in extract_function_pairs(
@@ -157,16 +164,38 @@ def transform_to_oneline(code: str) -> str:
                 yield tok.string
 
     one_liner = " ".join(tokenize_to_one_liner(code))
-    assert "\n" not in one_liner
+    assert "\n" not in one_liner, (
+        f"Cannot transform code to one-liner:\n"
+        + "-" * 80
+        + f"\n{code}\n"
+        + "-" * 80
+        + "\nTransformed to:\n"
+        + "-" * 80
+        + f"\n{one_liner}"
+    )
     return one_liner
 
 
 def main():
-    for entry in extract_normalized_function_changes(
-        changed_entries_file="../github_file_changes/file_changes_chunk0.jsonl"
-    ):
-        print(entry)
+    output_file_before = "../corpus/buggy.txt"
+    output_file_after = "../corpus/fixed.txt"
+    lines_written = 0
+
+    with open(output_file_before, mode="wt", newline="\n") as outfile_before, open(
+        output_file_after, mode="wt", newline="\n"
+    ) as outfile_after:
+        for entry in extract_normalized_function_changes(
+            changed_entries_file="../github_file_changes/file_changes_chunk0.jsonl"
+        ):
+            outfile_before.write(entry.before_code)
+            outfile_before.write("\n")
+            outfile_after.write(entry.after_code)
+            outfile_after.write("\n")
+            lines_written += 1
+
+    print(f"Wrote {lines_written} lines to {output_file_before}, {output_file_after}")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
     main()
