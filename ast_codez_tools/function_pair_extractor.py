@@ -41,15 +41,22 @@ We make some big assumptions to make things easy:
 
 import ast
 import logging
-import sys
 import typing
 
 from .function_extractor import extract_functions
 
 
+class FunctionPair(typing.NamedTuple):
+    """Represents the buggy and fixed versions of a function."""
+
+    func_name: str
+    before_node: ast.AST
+    after_node: ast.AST
+
+
 def extract_function_pairs(
     *, before_code: str, before_name: str, after_code: str, after_name: str
-) -> typing.Iterator[typing.Tuple[str, str, str]]:
+) -> typing.Iterator[FunctionPair]:
     """Extracts function pairs from `before_code` and `after_code`
 
     Args:
@@ -63,7 +70,7 @@ def extract_function_pairs(
             Name of the script file after changes, used only for messages
 
     Yields:
-        Tuple of (func_name, before_func_code, after_func_code)
+        A NamedTuple `FunctionPair`
     """
     before_node = ast.parse(before_code, filename=before_name)
     before_functions = extract_functions(before_node)
@@ -71,19 +78,23 @@ def extract_function_pairs(
     after_functions = extract_functions(after_node)
 
     before_functions_seen: "set[str]" = set()
-    for func_name, before_func_code in before_functions.items():
+    for func_name, before_func_node in before_functions.items():
         try:
-            after_func_code = after_functions[func_name]
+            after_func_node = after_functions[func_name]
         except KeyError:
             logging.debug(
                 f"Missing function in <after>: {func_name}() is present in {before_name} but missing in {after_name}"
             )
         else:
             before_functions_seen.add(func_name)
-            yield (func_name, before_func_code, after_func_code)
+            yield FunctionPair(
+                func_name=func_name,
+                before_node=before_func_node,
+                after_node=after_func_node,
+            )
 
     # This is just for warnings
-    for func_name, after_func_code in after_functions.items():
+    for func_name, after_func_node in after_functions.items():
         if func_name not in before_functions_seen:
             logging.debug(
                 f"Missing function in <before>: {func_name}() is missing in {before_name} but present in {after_name}"
@@ -93,6 +104,8 @@ def extract_function_pairs(
 def main(argv: typing.Optional[typing.Sequence[str]] = None):
     import argparse
     import pathlib
+
+    import astor
 
     parser = argparse.ArgumentParser(
         prog="python -m ast_codez_tools." + pathlib.Path(__file__).stem
@@ -106,12 +119,15 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None):
     before_code = pathlib.Path(before_name).read_text(encoding="utf8")
     after_code = pathlib.Path(after_name).read_text(encoding="utf8")
 
-    for func_name, func_before, func_after in extract_function_pairs(
+    for func_name, before_node, after_node in extract_function_pairs(
         before_code=before_code,
         before_name=before_name,
         after_code=after_code,
         after_name=after_name,
     ):
+        func_before = astor.to_source(before_node)
+        func_after = astor.to_source(after_node)
+
         print("-" * 80)
         print(f"Function name: {func_name}()")
         if func_before != func_after:

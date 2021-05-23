@@ -12,32 +12,29 @@ import astor
 from ast_codez_tools.literal_statement_remover import remove_literal_statements
 
 
-def extract_functions(node: ast.AST) -> "dict[str, str]":
+def extract_functions(node: ast.AST) -> typing.Dict[str, ast.AST]:
     """Wrapper around FunctionExtractor.
 
     Args:
         node: ast.AST node. This should be the AST of a Python file.
 
     Returns:
-        Dictionary that maps function names to (cleaned) function code.
+        Dictionary that maps function names to (cleaned) function AST nodes.
     """
     cleaned_node = remove_literal_statements(node)
     extractor = FunctionExtractor()
     extractor.visit(cleaned_node)
-    return {
-        name: astor.to_source(function_node)
-        for name, function_node in extractor.get_functions_seen().items()
-    }
+    return extractor.get_functions_seen()
 
 
-def extract_functions_from_file(filename: str) -> "dict[str, str]":
+def extract_functions_from_file(filename: str) -> typing.Dict[str, ast.AST]:
     """Extracts functions from python code.
 
     Args:
         filename: Path to Python source file.
 
     Returns:
-        Dictionary that maps function names to (cleaned) function code.
+        Dictionary that maps function names to (cleaned) function AST nodes.
     """
     with open(filename, mode="r", encoding="utf8") as source_file:
         source_code = source_file.read()
@@ -100,8 +97,7 @@ def main():
         print("-" * 80)
         print(f"name: {name}()")
         print("-" * 80)
-        print(node)
-        print()
+        print(astor.to_source(node))
 
 
 if __name__ == "__main__":

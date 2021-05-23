@@ -14,10 +14,7 @@ Steps for each change entry:
 
     See `function_pair_extractor.py` for more info.
 
-3. Exclude function pairs that are identical.
-    This is an optimization step that does what step 5 does.
-
-4. Normalize before_code and after_code. This does:
+3. Normalize before_code and after_code. This does:
 
     - Replaces identifiers and constants with special constants
       (e.g. INT_1, STR_1, IDENTIFIER_2) so that the model can work with a
@@ -26,7 +23,7 @@ Steps for each change entry:
       recognize semantically significant tokens (e.g. indents) as words.
     - If either the before_code or after_code has > 50 tokens, exclude them.
 
-5. Exclude normalized function pairs that are identical.
+4. Exclude normalized function pairs that are identical.
     This leaves us with function pairs that have changes.
 """
 
@@ -85,36 +82,29 @@ def extract_normalized_function_changes(
         code_after = sanitize_code(row["code_after"])
 
         try:
-            for func_name, func_code_before, func_code_after in extract_function_pairs(
+            for function_pair in extract_function_pairs(
                 before_code=code_before,
                 before_name=f"{repo_name}:{commit_before}:{file_before}",
                 after_code=code_after,
                 after_name=f"{repo_name}:{commit_after}:{file_after}",
             ):
-                # Optimization!
-                if func_code_before == func_code_after:
-                    logging.info(
-                        f"Skipped identical function: {repo_name}:{commit_after}:{file_after}:{func_name}()"
-                    )
-                    continue
-
                 try:
                     normalized_before_code, normalized_after_code = normalize_code_pair(
                         idioms=idioms,
-                        before_code=func_code_before,
-                        after_code=func_code_after,
+                        before_node=function_pair.before_node,
+                        after_node=function_pair.after_node,
                     )
                 except TooManyTokensError:
                     continue
 
                 if normalized_before_code == normalized_after_code:
                     logging.info(
-                        f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{func_name}()"
+                        f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}()"
                     )
                     continue
 
                 yield NormalizedFunctionChangeEntry(
-                    name=f"{repo_name}:{commit_after}:{file_after}:{func_name}",
+                    name=f"{repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
                     before_code=normalized_before_code,
                     after_code=normalized_after_code,
                 )
@@ -123,15 +113,15 @@ def extract_normalized_function_changes(
             #
             # Fortunately, we don't need care about hashbang because ast.parse()
             # ignores it
-            logging.warn(
+            logging.info(
                 f"Skipped because of invalid Python syntax in {repo_name}:{commit_after}:{file_after}\n{e.msg}"
             )
 
 
 def normalize_code_pair(
-    *, idioms: IdiomDatabase, before_code: str, after_code: str
+    *, idioms: IdiomDatabase, before_node: ast.AST, after_node: ast.AST
 ) -> typing.Tuple[str, str]:
-    """Normalizes before_code, after_code using a single CodeNormalizer.
+    """Normalizes before_node, after_node using a single CodeNormalizer.
 
     Using the same CodeNormalizer instance allows identical identifiers to be
     normalized in a predictable manner.
@@ -139,8 +129,8 @@ def normalize_code_pair(
     normalizer = CodeNormalizer(idioms=idioms)
     # According to our paper, order is important.
     # We process
-    normalized_before_code = astor.to_source(normalizer.visit(ast.parse(before_code)))
-    normalized_after_code = astor.to_source(normalizer.visit(ast.parse(after_code)))
+    normalized_before_code = astor.to_source(normalizer.visit(before_node))
+    normalized_after_code = astor.to_source(normalizer.visit(after_node))
     return (
         transform_to_oneline(normalized_before_code),
         transform_to_oneline(normalized_after_code),

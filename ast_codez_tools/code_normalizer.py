@@ -134,12 +134,15 @@ class CodeNormalizer(ast.NodeTransformer):
 
 
 def main():
+    import astor
+
     from .function_extractor import extract_functions_from_file
 
     functions = extract_functions_from_file(sys.argv[1])
 
     idioms = load_idioms()
-    for name, code in functions.items():
+    for name, node in functions.items():
+        code = astor.to_source(node)
         print("-" * 80)
         print(f"{name}()\n")
         print(f'{"Original: ":-<80}')
