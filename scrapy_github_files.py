@@ -9,7 +9,6 @@ import gzip
 import logging
 import os
 import pathlib
-import random
 import re
 import typing
 
@@ -44,7 +43,26 @@ def load_gzipped_lines(
             yield from lines
 
 
-def generate_diff_infos(*, row: dict) -> typing.Iterator[dict]:
+class CrawledFileChange(typing.TypedDict, total=False):
+    """Dictionary that stores information about a changed file, extracted from
+    BigQuery data and augmented with file contents crawled directly from GitHub.
+
+    This dictionary defines the data format saved by this script.
+    """
+
+    repository: str
+    commit_before: str
+    commit_after: str
+    diff_index: int
+    file_before: str
+    file_after: str
+    url_before: str
+    url_after: str
+    code_before: str
+    code_after: str
+
+
+def generate_diff_infos(*, row: dict) -> typing.Iterator[CrawledFileChange]:
     """Parses a dictionary containing commit info and yields one dict for each
     file that should be crawled."""
 
@@ -89,16 +107,16 @@ def generate_diff_infos(*, row: dict) -> typing.Iterator[dict]:
             repo=repo, sha=commit_sha, path=new_file_path
         )
 
-        yield {
-            "repository": repo,
-            "commit_before": parent_sha,
-            "commit_after": commit_sha,
-            "diff_index": diff_index,
-            "file_before": old_file_path,
-            "file_after": new_file_path,
-            "url_before": url_before,
-            "url_after": url_after,
-        }
+        yield CrawledFileChange(
+            repository=repo,
+            commit_before=parent_sha,
+            commit_after=commit_sha,
+            diff_index=diff_index,
+            file_before=old_file_path,
+            file_after=new_file_path,
+            url_before=url_before,
+            url_after=url_after,
+        )
 
 
 class DownloadedChangeEntry(typing.NamedTuple):
@@ -229,7 +247,7 @@ class GithubFilesSpider(scrapy.Spider):
                 )
 
     def parse(self, response):
-        diff_entry: dict = response.meta["diff_entry"]
+        diff_entry: CrawledFileChange = response.meta["diff_entry"]
         crawl_for: str = response.meta["crawl_for"]
 
         if crawl_for == "url_before":
