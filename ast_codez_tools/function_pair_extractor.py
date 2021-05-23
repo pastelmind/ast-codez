@@ -66,9 +66,9 @@ def extract_function_pairs(
         Tuple of (func_name, before_func_code, after_func_code)
     """
     before_node = ast.parse(before_code, filename=before_name)
-    before_functions = extract_functions(before_node, before_name)
+    before_functions = extract_functions(before_node)
     after_node = ast.parse(after_code, filename=after_name)
-    after_functions = extract_functions(after_node, after_name)
+    after_functions = extract_functions(after_node)
 
     before_functions_seen: "set[str]" = set()
     for func_name, before_func_code in before_functions.items():
