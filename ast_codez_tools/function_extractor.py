@@ -89,8 +89,7 @@ class FunctionExtractor(ast.NodeVisitor):
         for method_name, method_node in child_visitor.get_functions_seen().items():
             self._add_function(f"{node.name}.{method_name}", method_node)
 
-        # Don't call generic_visit() since we don't want to process innner
-        # classes.  (Who uses inner classes in Python, anyway?)
+        # Don't call generic_visit() since we already visited them
         return node
 
 
