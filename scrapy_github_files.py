@@ -352,7 +352,7 @@ class GithubFilesSpider(scrapy.Spider):
                 # downloaded.
                 yield scrapy.Request(
                     url=fc_data.get_url_before(),
-                    meta={
+                    cb_kwargs={
                         "fc_data": fc_data,
                         "crawl_for": "url_before",
                         "repository": fc_data.get_current_repository(),
@@ -360,18 +360,20 @@ class GithubFilesSpider(scrapy.Spider):
                 )
                 yield scrapy.Request(
                     url=fc_data.get_url_after(),
-                    meta={
+                    cb_kwargs={
                         "fc_data": fc_data,
                         "crawl_for": "url_after",
                         "repository": fc_data.get_current_repository(),
                     },
                 )
 
-    def parse(self, response: "scrapy.http.TextResponse"):
-        fc_data: FileChangeData = response.meta["fc_data"]
-        crawl_for: str = response.meta["crawl_for"]
-        request_repository = response.meta["repository"]
-
+    def parse(
+        self,
+        response: "scrapy.http.TextResponse",
+        fc_data: FileChangeData,
+        crawl_for: str,
+        repository: str,
+    ):
         if crawl_for == "url_before":
             assert fc_data.code_before is None
             fc_data.code_before = response.text
@@ -384,7 +386,7 @@ class GithubFilesSpider(scrapy.Spider):
         if fc_data.code_before is not None and fc_data.code_after is not None:
             # We are complete
             yield FileChangeResult(
-                repository=request_repository,
+                repository=repository,
                 commit_before=fc_data.commit_before,
                 commit_after=fc_data.commit_after,
                 diff_index=fc_data.diff_index,
