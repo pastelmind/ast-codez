@@ -5,6 +5,7 @@ Run with:
     scrapy runspider scrapy_github_files.py
 """
 
+import dataclasses
 import gzip
 import logging
 import os
@@ -15,6 +16,9 @@ import typing
 import fake_useragent
 import jsonlines
 import scrapy
+
+if typing.TYPE_CHECKING:
+    import scrapy.http
 
 
 def select_chunk_file() -> typing.Tuple[pathlib.Path, int]:
@@ -43,26 +47,141 @@ def load_gzipped_lines(
             yield from lines
 
 
-class CrawledFileChange(typing.TypedDict, total=False):
+class FileChangeResult(typing.TypedDict):
     """Dictionary that stores information about a changed file, extracted from
     BigQuery data and augmented with file contents crawled directly from GitHub.
 
     This dictionary defines the data format saved by this script.
     """
 
+    # Name of the repository, of format `<user_or_org>/<project_name>`
     repository: str
+    # Commit SHA before the change
     commit_before: str
+    # Commit SHA after the change
     commit_after: str
     diff_index: int
+    # Path of the file before the change
     file_before: str
+    # Path of the file after the change
     file_after: str
+    # Download URL for the file before the change
     url_before: str
+    # Download URL for the file after the change
     url_after: str
+    # Index of the row in the chunk file that was used to generate this object.
+    # This isn't really important; it's kept around "just in case".
+    row_index: int
+    # Contents of the file before the change
     code_before: str
+    # Contents of the file after the change
     code_after: str
 
 
-def generate_diff_infos(*, row: dict) -> typing.Iterator[CrawledFileChange]:
+class FileChangeResultKey(typing.NamedTuple):
+    """NamedTuple that uniquely identifies a FileChangeResult object.
+
+    This consists of fields in a FileChangeResult that uniquely identify it.
+    It is meant to act as a unique identifier (or "composite key") when skipping
+    file changes that have been already crawled.
+    """
+
+    repository: str
+    commit_before: str
+    commit_after: str
+    file_before: str
+    file_after: str
+
+    @classmethod
+    def from_dict(cls, raw_entry: FileChangeResult) -> "FileChangeResultKey":
+        """Creates a FileChangeResultKey from a dictionary (preferably, one that
+        conforms to FileChangeResult)."""
+        return cls(
+            repository=raw_entry["repository"],
+            commit_before=raw_entry["commit_before"],
+            commit_after=raw_entry["commit_after"],
+            file_before=raw_entry["file_before"],
+            file_after=raw_entry["file_after"],
+        )
+
+
+class AllRepositoriesInvalidatedError(Exception):
+    """Raised when all repositories have been invalidated"""
+
+
+GITHUB_FILE_DOWNLOAD_URL = "https://raw.githubusercontent.com/{repo}/{sha}/{path}"
+
+
+@dataclasses.dataclass
+class FileChangeData:
+    """Dataclass used to store data about a file change being crawled.
+
+    This is an intermediate format and is NOT meant to be stored as the final
+    result. Use `FileChangeResult` for that.
+    """
+
+    # Names of repositories associated with this change.
+    # A repository can have multiple forks.
+    repositories: typing.Tuple[str, ...]
+    # Index of the repository being crawled in `self.repositories`.
+    _current_repository_index: int = dataclasses.field(default=0, init=False)
+    # SHA of the commit before the change
+    commit_before: str
+    # SHA of the commit after the change
+    commit_after: str
+    # Index of the current file in the list of files that were changed by this
+    # change.
+    # This is an unimportant field, but is kept around "just in case".
+    diff_index: int
+    # Path of the file in the repository before the change
+    file_before: str
+    # Path of the file in the repository after the change
+    file_after: str
+    # Index of the row in the chunk file that was used to generate this object.
+    # This isn't really important; it's kept around "just in case".
+    row_index: int
+    code_before: typing.Optional[str] = None
+    code_after: typing.Optional[str] = None
+
+    def get_current_repository(self) -> str:
+        """Returns the currently selected repository.
+
+        Raises:
+            AllRepositoriesInvalidatedError: If all repositories were invaliated
+        """
+        try:
+            return self.repositories[self._current_repository_index]
+        except IndexError:
+            raise AllRepositoriesInvalidatedError() from None
+
+    def select_next_repository(self) -> bool:
+        """Selects the next repository and returns True. If there is no next
+        repository, returns False."""
+        self._current_repository_index += 1
+        if self._current_repository_index >= len(self.repositories):
+            self._current_repository_index = len(self.repositories)
+            return False
+        else:
+            return True
+
+    def get_url_before(self) -> str:
+        return GITHUB_FILE_DOWNLOAD_URL.format(
+            repo=self.get_current_repository(),
+            sha=self.commit_before,
+            path=self.file_before,
+        )
+
+    def get_url_after(self) -> str:
+        return GITHUB_FILE_DOWNLOAD_URL.format(
+            repo=self.get_current_repository(),
+            sha=self.commit_after,
+            path=self.file_after,
+        )
+
+
+def generate_file_change_data(
+    *, row: dict, row_index: int
+) -> typing.Iterator[FileChangeData]:
     """Parses a dictionary containing commit info and yields one dict for each
     file that should be crawled."""
 
@@ -75,15 +194,19 @@ def generate_diff_infos(*, row: dict) -> typing.Iterator[CrawledFileChange]:
     # In this case, we select the first commit (this is a wild guess).
     parent_sha = row["parent"][0]
 
-    repo_name = row["repo_name"]
-    repo = repo_name[0] if isinstance(repo_name, list) else repo_name
+    repositories: list[str] = row["repo_name"]
+    assert isinstance(repositories, list), f"repo_name is not a list: {row=}"
+    assert repositories, f"repo_name is empty: {row=}"
+    assert len(repositories) == len(
+        set(repositories)
+    ), f"repo_name contains non-unique repository names: {row=}"
 
     # If there are too many changes, the scope is probably too wide for us
     MAX_ALLOWED_FILE_CHANGES = 5
     num_changes = len(row["difference"])
     if num_changes > MAX_ALLOWED_FILE_CHANGES:
         logging.info(
-            f"Repo {repo}, commit {commit_sha} is skipped because it has too many changes ({num_changes} > {MAX_ALLOWED_FILE_CHANGES} files changes)"
+            f"Repo {repositories[0]}, commit {commit_sha} is skipped because it has too many changes ({num_changes} > {MAX_ALLOWED_FILE_CHANGES} files changes)"
         )
         return
 
@@ -97,68 +220,59 @@ def generate_diff_infos(*, row: dict) -> typing.Iterator[CrawledFileChange]:
         old_file_path = diff["old_path"]
         new_file_path = diff["new_path"]
 
-        GITHUB_FILE_DOWNLOAD_URL = (
-            "https://raw.githubusercontent.com/{repo}/{sha}/{path}"
-        )
-        url_before = GITHUB_FILE_DOWNLOAD_URL.format(
-            repo=repo, sha=parent_sha, path=old_file_path
-        )
-        url_after = GITHUB_FILE_DOWNLOAD_URL.format(
-            repo=repo, sha=commit_sha, path=new_file_path
-        )
-
-        yield CrawledFileChange(
-            repository=repo,
+        yield FileChangeData(
+            repositories=tuple(repositories),
             commit_before=parent_sha,
             commit_after=commit_sha,
             diff_index=diff_index,
             file_before=old_file_path,
             file_after=new_file_path,
-            url_before=url_before,
-            url_after=url_after,
+            row_index=row_index,
         )
 
 
-class DownloadedChangeEntry(typing.NamedTuple):
-    repository: str
-    # Commit SHA before the change
-    commit_before: str
-    # Commit SHA after the
-    commit_after: str
-    # Path of the file before the change
-    file_before: str
-    # Path of the file after the change
-    file_after: str
+def load_downloaded_changes(
+    *, file_path: typing.Union[str, os.PathLike]
+) -> typing.Set[FileChangeResultKey]:
+    """Returns a set of FileChangeResultKey objects which represent file changes
+    in `downloaded_data_file`.
 
-    @classmethod
-    def from_dict(cls, raw_entry: typing.Dict[str, str]) -> "DownloadedChangeEntry":
-        """Creates a DownloadedChangeEntry from a dictionary."""
-        return cls(
-            repository=raw_entry["repository"],
-            commit_before=raw_entry["commit_before"],
-            commit_after=raw_entry["commit_after"],
-            file_before=raw_entry["file_before"],
-            file_after=raw_entry["file_after"],
-        )
-
-
-def load_downloaded_entry_infos(
-    *, downloaded_data_file: typing.Union[str, os.PathLike]
-) -> typing.Set[DownloadedChangeEntry]:
-    """Returns a set of Change Entries that are already downloaded.
-
-    Loads a JSON Lines file containing Change Entries that have been downloaded
-    so far, and extracts a set of DownloadedChangeEntry objects.
+    Loads a JSON Lines file containing FileChangeResult objects that have been
+    downloaded so far, and extracts a set of FileChangeResultKey objects.
     This can be used to skip crawling entries that have already downloaded when
     resuming from a crash.
 
     If `downloaded_data_file` does not exist, returns an empty set.
     """
     try:
-        with jsonlines.open(downloaded_data_file, mode="r") as lines:
-            return {DownloadedChangeEntry.from_dict(raw_entry) for raw_entry in lines}
+        with jsonlines.open(file_path, mode="r") as lines:
+            return {FileChangeResultKey.from_dict(raw_entry) for raw_entry in lines}
     except FileNotFoundError:
         return set()
+
+
+def is_already_downloaded(
+    downloaded_entries: typing.Set[FileChangeResultKey], fc_entry: FileChangeData
+) -> bool:
+    """Checks if the file contents that will be crawled according to `fc` is
+    already present in `downloaded_entries`."""
+    for repository in fc_entry.repositories:
+        # We need to create a NamedTuple for every repository we want to check.
+        # This is not ideal, but I wasn't thinking too clear when designing the
+        # original output format, and we'd rather reuse existing data rather
+        # than crawl GitHub all over again.
+        if (
+            FileChangeResultKey(
+                repository=repository,
+                commit_before=fc_entry.commit_before,
+                commit_after=fc_entry.commit_after,
+                file_before=fc_entry.file_before,
+                file_after=fc_entry.file_after,
+            )
+            in downloaded_entries
+        ):
+            return True
+    return False
 
 
 # Must request chunk file name here to configure spider before it is picked up
@@ -174,6 +288,8 @@ class GithubFilesSpider(scrapy.Spider):
     allowed_domains = ["raw.githubusercontent.com"]
 
     custom_settings = {
+        # We want to try forks in case of 404
+        "HTTPERROR_ALLOWED_CODES": [404],
         # These settings should help us avoid getting banned
         "AUTOTHROTTLE_ENABLED": True,
         # Repositories that have been deleted return 404 errors. These responses
@@ -186,9 +302,6 @@ class GithubFilesSpider(scrapy.Spider):
         # down a lot.
         # We explicitly set the initial download delay to a small value to avoid
         # this phenomenon.
-        # Note: This could also be solved by remembering the 404 result, or by
-        # fetching a fork that is still alive. But I don't have time to do
-        # either right now.
         "AUTOTHROTTLE_START_DELAY": 0.5,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
@@ -205,12 +318,13 @@ class GithubFilesSpider(scrapy.Spider):
     OUTPUT_FILE_PATH = OUTPUT_FILE_PATH
 
     def start_requests(self):
+        # We intentionally read the file twice instead of storing the file in
+        # a list. This is because the chunk files eat up a large amount of
+        # memory (~300 MB observed).
         ROW_COUNT = sum(1 for _ in load_gzipped_lines(file_name=self.CHUNK_FILE_NAME))
 
         # For resuming interrupted crawling sessions
-        downloaded_changes = load_downloaded_entry_infos(
-            downloaded_data_file=self.OUTPUT_FILE_PATH
-        )
+        downloaded_changes = load_downloaded_changes(file_path=self.OUTPUT_FILE_PATH)
         logging.info(
             f"Found {len(downloaded_changes)} change entries that were downloaded in a previous run"
         )
@@ -218,50 +332,70 @@ class GithubFilesSpider(scrapy.Spider):
         for row_index, row in enumerate(
             load_gzipped_lines(file_name=self.CHUNK_FILE_NAME)
         ):
-            diff_infos = list(generate_diff_infos(row=row))
+            file_change_entries = list(
+                generate_file_change_data(row=row, row_index=row_index)
+            )
 
-            for diff_num, diff_entry in enumerate(
-                generate_diff_infos(row=row), start=1
-            ):
-                if DownloadedChangeEntry.from_dict(diff_entry) in downloaded_changes:
+            for fc_num, fc_data in enumerate(file_change_entries, start=1):
+                if is_already_downloaded(downloaded_changes, fc_data):
                     logging.info(
-                        f"Skipping already downloaded commit {row_index + 1} / {ROW_COUNT}, file {diff_num} / {len(diff_infos)}"
+                        f"Skipping already downloaded commit {row_index + 1} / {ROW_COUNT}, file {fc_num} / {len(file_change_entries)}"
                     )
                     continue
 
-                logging.info(
-                    f"Crawling commit {row_index + 1} / {ROW_COUNT}, file {diff_num} / {len(diff_infos)}"
+                logging.debug(
+                    f"Crawling commit {row_index + 1} / {ROW_COUNT}, file {fc_num} / {len(file_change_entries)}"
                 )
-                diff_entry["row_index"] = row_index
 
-                # Pass the entry dict as the diff_entry for both requests.
+                # Store the fc_data object in the metadata of both requests.
                 # This allows us to recombine the requests after they are
                 # downloaded.
                 yield scrapy.Request(
-                    url=diff_entry["url_before"],
-                    meta={"diff_entry": diff_entry, "crawl_for": "url_before"},
+                    url=fc_data.get_url_before(),
+                    meta={
+                        "fc_data": fc_data,
+                        "crawl_for": "url_before",
+                        "repository": fc_data.get_current_repository(),
+                    },
                 )
                 yield scrapy.Request(
-                    url=diff_entry["url_after"],
-                    meta={"diff_entry": diff_entry, "crawl_for": "url_after"},
+                    url=fc_data.get_url_after(),
+                    meta={
+                        "fc_data": fc_data,
+                        "crawl_for": "url_after",
+                        "repository": fc_data.get_current_repository(),
+                    },
                 )
 
-    def parse(self, response):
-        diff_entry: CrawledFileChange = response.meta["diff_entry"]
+    def parse(self, response: "scrapy.http.TextResponse"):
+        fc_data: FileChangeData = response.meta["fc_data"]
         crawl_for: str = response.meta["crawl_for"]
+        request_repository = response.meta["repository"]
 
         if crawl_for == "url_before":
-            assert "code_before" not in diff_entry
-            diff_entry["code_before"] = response.text
+            assert fc_data.code_before is None
+            fc_data.code_before = response.text
         elif crawl_for == "url_after":
-            assert "code_after" not in diff_entry
-            diff_entry["code_after"] = response.text
+            assert fc_data.code_after is None
+            fc_data.code_after = response.text
         else:
-            raise ValueError(f"Unexpected {crawl_for=}, see related {diff_entry=}")
+            raise ValueError(f"Unexpected {crawl_for=}, see related {fc_data=}")
 
-        if "code_before" in diff_entry and "code_after" in diff_entry:
+        if fc_data.code_before is not None and fc_data.code_after is not None:
             # We are complete
-            yield diff_entry
+            yield FileChangeResult(
+                repository=request_repository,
+                commit_before=fc_data.commit_before,
+                commit_after=fc_data.commit_after,
+                diff_index=fc_data.diff_index,
+                file_before=fc_data.file_before,
+                file_after=fc_data.file_after,
+                url_before=fc_data.get_url_before(),
+                url_after=fc_data.get_url_after(),
+                row_index=fc_data.row_index,
+                code_before=fc_data.code_before,
+                code_after=fc_data.code_after,
+            )
         else:
             # Skip this one since it is incomplete
             return
