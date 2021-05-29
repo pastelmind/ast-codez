@@ -203,10 +203,12 @@ def transform_to_oneline(code: str) -> str:
 def main():
     import pathlib
 
+    CHUNK_NUM = int(input("Enter downloaded chunk number: "))
+
     output_dir = pathlib.Path("../dataset/")
-    output_file_before = output_dir / "buggy.txt"
-    output_file_after = output_dir / "fixed.txt"
-    output_file_data = output_dir / "data.jsonl"
+    output_file_before = output_dir / f"buggy{CHUNK_NUM}.txt"
+    output_file_after = output_dir / f"fixed{CHUNK_NUM}.txt"
+    output_file_data = output_dir / f"data{CHUNK_NUM}.jsonl"
     lines_written = 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -215,7 +217,7 @@ def main():
         output_file_after, mode="wt", newline="\n"
     ) as outfile_after, jsonlines.open(output_file_data, mode="w") as outfile_data:
         for entry in extract_normalized_function_changes(
-            changed_entries_file="../github_file_changes/file_changes_chunk0.jsonl"
+            changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
         ):
             outfile_before.write(entry.before_code)
             outfile_before.write("\n")
