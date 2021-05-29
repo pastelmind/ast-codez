@@ -3,6 +3,7 @@ colorama~=0.4
 # pandas
 # google-cloud-bigquery
 fake-useragent>=0.1
+JPype1>=1.2.1,~=1.2
 jsonlines>=2
 parso~=0.8.2
 requests>=2.25
