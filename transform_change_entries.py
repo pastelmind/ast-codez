@@ -37,7 +37,9 @@ import astor
 import jsonlines
 
 from ast_codez_tools.code_normalizer import CodeNormalizer
+from ast_codez_tools.file_change_result import FileChangeResult
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
+from ast_codez_tools.gumtree_pydiff import gumtree_diff
 from idiom_loader import IdiomDatabase, load_idioms
 
 MAX_TOKEN_COUNT = 50
@@ -45,7 +47,7 @@ MAX_TOKEN_COUNT = 50
 
 def yield_changed_entries(
     *, changed_entries_file: str
-) -> typing.Iterator[typing.Dict[str, str]]:
+) -> typing.Iterator[FileChangeResult]:
     with jsonlines.open(changed_entries_file, mode="r") as rows:
         yield from rows
 
@@ -54,6 +56,7 @@ class NormalizedFunctionChangeEntry(typing.NamedTuple):
     name: str
     before_code: str
     after_code: str
+    edit_actions: tuple[str, ...]
 
 
 def sanitize_code(code: str) -> str:
@@ -88,6 +91,10 @@ def extract_normalized_function_changes(
                 after_code=code_after,
                 after_name=f"{repo_name}:{commit_after}:{file_after}",
             ):
+                # Must be computed before calling normalize_code_pair()
+                func_code_before = astor.to_source(function_pair.before_node)
+                func_code_after = astor.to_source(function_pair.after_node)
+
                 try:
                     normalized_before_code, normalized_after_code = normalize_code_pair(
                         idioms=idioms,
@@ -103,10 +110,18 @@ def extract_normalized_function_changes(
                     )
                     continue
 
+                diff_result = gumtree_diff(
+                    code_before=func_code_before,
+                    code_after=func_code_after,
+                )
+
                 yield NormalizedFunctionChangeEntry(
                     name=f"{repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
                     before_code=normalized_before_code,
                     after_code=normalized_after_code,
+                    edit_actions=tuple(
+                        edit_action["action"] for edit_action in diff_result["actions"]
+                    ),
                 )
         except SyntaxError as e:
             # We may have invalid Python code, or Python 2 code
@@ -125,6 +140,8 @@ def normalize_code_pair(
 
     Using the same CodeNormalizer instance allows identical identifiers to be
     normalized in a predictable manner.
+
+    NOTE: This modifies `before_node` and `after_node` in place.
     """
     normalizer = CodeNormalizer(idioms=idioms)
     # According to our paper, order is important.
@@ -184,13 +201,19 @@ def transform_to_oneline(code: str) -> str:
 
 
 def main():
-    output_file_before = "../corpus/buggy.txt"
-    output_file_after = "../corpus/fixed.txt"
+    import pathlib
+
+    output_dir = pathlib.Path("../dataset/")
+    output_file_before = output_dir / "buggy.txt"
+    output_file_after = output_dir / "fixed.txt"
+    output_file_data = output_dir / "data.jsonl"
     lines_written = 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_file_before, mode="wt", newline="\n") as outfile_before, open(
         output_file_after, mode="wt", newline="\n"
-    ) as outfile_after:
+    ) as outfile_after, jsonlines.open(output_file_data, mode="w") as outfile_data:
         for entry in extract_normalized_function_changes(
             changed_entries_file="../github_file_changes/file_changes_chunk0.jsonl"
         ):
@@ -198,9 +221,12 @@ def main():
             outfile_before.write("\n")
             outfile_after.write(entry.after_code)
             outfile_after.write("\n")
+            outfile_data.write(entry._asdict())
             lines_written += 1
 
-    print(f"Wrote {lines_written} lines to {output_file_before}, {output_file_after}")
+    print(
+        f"Wrote {lines_written} lines to {output_file_before}, {output_file_after}, {output_file_data}"
+    )
 
 
 if __name__ == "__main__":
