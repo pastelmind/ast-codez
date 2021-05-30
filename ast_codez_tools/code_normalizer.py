@@ -33,6 +33,10 @@ class CodeNormalizer(ast.NodeTransformer):
         self._idioms = idioms
 
     def _get_replacement_identifier(self, identifier: str) -> str:
+        assert not identifier.startswith(
+            ("IDENTIFIER_", "FLOAT_", "INT_", "STR_", "F_STR_")
+        ), f"Code already contains identifier {identifier}; normalizing it would destroy its semantics"
+
         if identifier in self._idioms.identifiers:
             return identifier
 
