@@ -36,40 +36,24 @@ class CodeNormalizer(ast.NodeTransformer):
         if identifier in self._idioms.identifiers:
             return identifier
 
-        try:
-            return self._identifiers_seen[identifier]
-        except KeyError:
-            replacement = self._identifiers_seen[
-                identifier
-            ] = f"IDENTIFIER_{len(self._identifiers_seen)}"
-            return replacement
+        return self._identifiers_seen.setdefault(
+            identifier, f"IDENTIFIER_{len(self._identifiers_seen)}"
+        )
 
     def _get_replacement_float(self, literal: float) -> str:
-        try:
-            return self._literals_seen_float[literal]
-        except KeyError:
-            replacement = self._literals_seen_float[
-                literal
-            ] = f"FLOAT_{len(self._literals_seen_float)}"
-            return replacement
+        return self._literals_seen_float.setdefault(
+            literal, f"FLOAT_{len(self._literals_seen_float)}"
+        )
 
     def _get_replacement_int(self, literal: int) -> str:
-        try:
-            return self._literals_seen_int[literal]
-        except KeyError:
-            replacement = self._literals_seen_int[
-                literal
-            ] = f"INT_{len(self._literals_seen_int)}"
-            return replacement
+        return self._literals_seen_int.setdefault(
+            literal, f"INT_{len(self._literals_seen_int)}"
+        )
 
     def _get_replacement_str(self, literal: str) -> str:
-        try:
-            return self._literals_seen_str[literal]
-        except KeyError:
-            replacement = self._literals_seen_str[
-                literal
-            ] = f"STR_{len(self._literals_seen_str)}"
-            return replacement
+        return self._literals_seen_str.setdefault(
+            literal, f"STR_{len(self._literals_seen_str)}"
+        )
 
     def _get_replacement_f_string(self, node: ast.JoinedStr) -> str:
         # There is no easy way to compare two AST nodes for equality.
