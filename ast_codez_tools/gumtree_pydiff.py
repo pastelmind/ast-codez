@@ -61,18 +61,30 @@ def gumtree_diff(code_before: str, code_after: str) -> GumTreeDiff:
         A `dict` containing the actions (for edit actions necessary to go from
         `code_before` to `code_after`) and matches (for identical code)
     """
-    # We choose not to use PythonTreeGenerator is very slow because it launches
-    # a new Python process to run pythonparser. It also doesn't work on Windows,
-    # because the original version of pythonparser is a shell script, and
-    # Windows does not support launching shell scripts as a process.
+    # We choose not to use PythonTreeGenerator which is built into GumTree.
+    # PythonTreeGenerator is very slow because it launches a new Python process
+    # to run pythonparser. It also doesn't work on Windows, because the original
+    # version of pythonparser is a shell script, and Windows does not support
+    # launching shell scripts as a process.
     # Instead, we run the pythonparser directly in our main Python process, then
     # feed the resulting XML string to GumTree.
-    j_tree_ctx_before = _j_tree_ctx_generator.string(
-        python_code_to_gumtree_xml(code_before)
-    )
-    j_tree_ctx_after = _j_tree_ctx_generator.string(
-        python_code_to_gumtree_xml(code_after)
-    )
+    xml_before = python_code_to_gumtree_xml(code_before)
+    xml_after = python_code_to_gumtree_xml(code_after)
+
+    j_tree_ctx_before = _j_tree_ctx_generator.string(xml_before)
+    if j_tree_ctx_before is None:
+        raise ValueError(
+            f"GumTree failed to parse Python code"
+            f"\n{'Python code: ':-<80}\n{code_before}"
+            f"\n{'XML representation: ':-<80}\n{xml_before}"
+        )
+    j_tree_ctx_after = _j_tree_ctx_generator.string(xml_after)
+    if j_tree_ctx_after is None:
+        raise ValueError(
+            f"GumTree failed to parse Python code"
+            f"\n{'Python code: ':-<80}\n{code_after}"
+            f"\n{'XML representation: ':-<80}\n{xml_after}"
+        )
 
     j_mappings = _j_default_matcher.match(
         j_tree_ctx_before.getRoot(), j_tree_ctx_after.getRoot()
