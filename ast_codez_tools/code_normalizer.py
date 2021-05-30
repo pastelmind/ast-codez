@@ -7,9 +7,24 @@ import astor
 from idiom_loader import IdiomDatabase, load_idioms
 
 
-def normalize_with_idioms(code: str, *, idioms: IdiomDatabase) -> str:
+class ReplacementMap(typing.TypedDict):
+    """Dictionary that can be used to restore a normalized code back to its
+    original form."""
+
+    identifiers: dict[str, str]
+    floats: dict[str, float]
+    ints: dict[str, int]
+    strings: dict[str, str]
+    f_strings: dict[str, str]
+
+
+def normalize_with_idioms(
+    code: str, *, idioms: IdiomDatabase
+) -> tuple[str, ReplacementMap]:
     """Normalizes Python code, skipping those in the `idioms` database."""
-    return astor.to_source(CodeNormalizer(idioms=idioms).visit(ast.parse(code)))
+    code_normalizer = CodeNormalizer(idioms=idioms)
+    normalized_code = astor.to_source(code_normalizer.visit(ast.parse(code)))
+    return normalized_code, code_normalizer.get_replacement_map()
 
 
 class CodeNormalizer(ast.NodeTransformer):
@@ -67,6 +82,16 @@ class CodeNormalizer(ast.NodeTransformer):
             code, f"F_STR_{len(self._f_strings_seen)}"
         )
 
+    def get_replacement_map(self) -> ReplacementMap:
+        """Returns mappings for converting normalized code to its original form."""
+        return ReplacementMap(
+            identifiers={v: k for k, v in self._identifiers_seen.items()},
+            floats={v: k for k, v in self._literals_seen_float.items()},
+            ints={v: k for k, v in self._literals_seen_int.items()},
+            strings={v: k for k, v in self._literals_seen_str.items()},
+            f_strings={v: k for k, v in self._f_strings_seen.items()},
+        )
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
         node.name = self._get_replacement_identifier(node.name)
         return self.generic_visit(node)
@@ -122,6 +147,8 @@ class CodeNormalizer(ast.NodeTransformer):
 
 
 def main():
+    from pprint import pprint
+
     import astor
 
     from .function_extractor import extract_functions_from_file
@@ -136,7 +163,10 @@ def main():
         print(f'{"Original: ":-<80}')
         print(code)
         print(f'{"Normalized: ":-<80}')
-        print(normalize_with_idioms(code, idioms=idioms))
+        normalized_code, replacement_map = normalize_with_idioms(code, idioms=idioms)
+        print(normalized_code)
+        print(f"{'Replacement map: ':-<80}")
+        pprint(replacement_map, width=120)
 
 
 if __name__ == "__main__":
