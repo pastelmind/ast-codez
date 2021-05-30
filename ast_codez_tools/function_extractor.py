@@ -10,6 +10,7 @@ import typing
 import astor
 
 from ast_codez_tools.literal_statement_remover import remove_literal_statements
+from ast_codez_tools.stack_node_visitor import StackNodeVisitor
 
 
 def extract_functions(node: ast.AST) -> typing.Dict[str, ast.AST]:
@@ -23,7 +24,7 @@ def extract_functions(node: ast.AST) -> typing.Dict[str, ast.AST]:
     """
     cleaned_node = remove_literal_statements(node)
     extractor = FunctionExtractor()
-    extractor.visit(cleaned_node)
+    extractor.do_visit(cleaned_node)
     return extractor.get_functions_seen()
 
 
@@ -42,7 +43,7 @@ def extract_functions_from_file(filename: str) -> typing.Dict[str, ast.AST]:
     return extract_functions(node)
 
 
-class FunctionExtractor(ast.NodeVisitor):
+class FunctionExtractor(StackNodeVisitor):
     """Extracts top-level functions and methods of classes from a file.
 
     This class is not intended to be reused across multiple Python files.
@@ -80,7 +81,7 @@ class FunctionExtractor(ast.NodeVisitor):
         # would call its own visit_ClassDef(), creating a child-child-visitor,
         # which calls its own visit_ClassDef(), ... creating an infinite loop.
         for child_node in ast.iter_child_nodes(node):
-            child_visitor.visit(child_node)
+            child_visitor.do_visit(child_node)
 
         # Methods of classes are stored as <class name>.<method name>
         for method_name, method_node in child_visitor.get_functions_seen().items():
