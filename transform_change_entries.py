@@ -36,7 +36,7 @@ import typing
 import astor
 import jsonlines
 
-from ast_codez_tools.code_normalizer import CodeNormalizer
+from ast_codez_tools.code_normalizer import CodeNormalizer, ReplacementMap
 from ast_codez_tools.file_change_result import FileChangeResult
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
 from ast_codez_tools.gumtree_pydiff import gumtree_diff
@@ -57,6 +57,7 @@ class NormalizedFunctionChangeEntry(typing.NamedTuple):
     before_code: str
     after_code: str
     edit_actions: tuple[str, ...]
+    replacement_map: ReplacementMap
 
 
 def sanitize_code(code: str) -> str:
@@ -96,7 +97,11 @@ def extract_normalized_function_changes(
                 func_code_after = astor.to_source(function_pair.after_node)
 
                 try:
-                    normalized_before_code, normalized_after_code = normalize_code_pair(
+                    (
+                        normalized_before_code,
+                        normalized_after_code,
+                        replacement_map,
+                    ) = normalize_code_pair(
                         idioms=idioms,
                         before_node=function_pair.before_node,
                         after_node=function_pair.after_node,
@@ -122,6 +127,7 @@ def extract_normalized_function_changes(
                     edit_actions=tuple(
                         edit_action["action"] for edit_action in diff_result["actions"]
                     ),
+                    replacement_map=replacement_map,
                 )
         except SyntaxError as e:
             # We may have invalid Python code, or Python 2 code
@@ -135,7 +141,7 @@ def extract_normalized_function_changes(
 
 def normalize_code_pair(
     *, idioms: IdiomDatabase, before_node: ast.AST, after_node: ast.AST
-) -> typing.Tuple[str, str]:
+) -> typing.Tuple[str, str, ReplacementMap]:
     """Normalizes before_node, after_node using a single CodeNormalizer.
 
     Using the same CodeNormalizer instance allows identical identifiers to be
@@ -151,6 +157,7 @@ def normalize_code_pair(
     return (
         transform_to_oneline(normalized_before_code),
         transform_to_oneline(normalized_after_code),
+        normalizer.get_replacement_map(),
     )
 
 
