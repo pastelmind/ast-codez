@@ -40,7 +40,6 @@ We make some big assumptions to make things easy:
 """
 
 import ast
-import logging
 import typing
 
 from .function_extractor import extract_functions
@@ -77,28 +76,12 @@ def extract_function_pairs(
     after_node = ast.parse(after_code, filename=after_name)
     after_functions = extract_functions(after_node)
 
-    before_functions_seen: "set[str]" = set()
-    for func_name, before_func_node in before_functions.items():
-        try:
-            after_func_node = after_functions[func_name]
-        except KeyError:
-            logging.debug(
-                f"Missing function in <after>: {func_name}() is present in {before_name} but missing in {after_name}"
-            )
-        else:
-            before_functions_seen.add(func_name)
-            yield FunctionPair(
-                func_name=func_name,
-                before_node=before_func_node,
-                after_node=after_func_node,
-            )
-
-    # This is just for warnings
-    for func_name, after_func_node in after_functions.items():
-        if func_name not in before_functions_seen:
-            logging.debug(
-                f"Missing function in <before>: {func_name}() is missing in {before_name} but present in {after_name}"
-            )
+    for func_name in before_functions.keys() & after_functions.keys():
+        yield FunctionPair(
+            func_name=func_name,
+            before_node=before_functions[func_name],
+            after_node=after_functions[func_name],
+        )
 
 
 def main(argv: typing.Optional[typing.Sequence[str]] = None):
