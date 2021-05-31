@@ -39,7 +39,7 @@ def python_code_to_gumtree_xml(code: str, *, pretty: bool = False) -> str:
     assert gumtree_root is not None
     if pretty:
         ET.indent(gumtree_root, space="  ")
-    return ET.tostring(gumtree_root, encoding="unicode")
+    return str(ET.tostring(gumtree_root), encoding='ascii')
 
 
 # We use xml.etree instead of xml.minidom because it correctly escapes newline
