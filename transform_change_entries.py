@@ -97,6 +97,8 @@ def extract_normalized_function_changes(
         code_before = sanitize_code(row["code_before"])
         code_after = sanitize_code(row["code_after"])
 
+        logging.info(f"Processing {repo_name}:{commit_after}:{file_after}")
+
         try:
             for function_pair in extract_function_pairs(
                 before_code=code_before,
@@ -122,7 +124,7 @@ def extract_normalized_function_changes(
                     continue
 
                 if normalized_before_code == normalized_after_code:
-                    logging.info(
+                    logging.debug(
                         f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}()"
                     )
                     continue
@@ -146,7 +148,7 @@ def extract_normalized_function_changes(
             #
             # Fortunately, we don't need care about hashbang because ast.parse()
             # ignores it
-            logging.info(
+            logging.debug(
                 f"Skipped because of invalid Python syntax in {repo_name}:{commit_after}:{file_after}\n{e.msg}"
             )
 
@@ -255,5 +257,5 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
     main()
