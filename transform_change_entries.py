@@ -33,7 +33,6 @@ import logging
 import tokenize
 import typing
 
-import astor
 import jsonlines
 
 from ast_codez_tools.code_normalizer import CodeNormalizer, ReplacementMap
@@ -93,8 +92,8 @@ def extract_normalized_function_changes(
                 after_name=f"{repo_name}:{commit_after}:{file_after}",
             ):
                 # Must be computed before calling normalize_code_pair()
-                func_code_before = astor.to_source(function_pair.before_node)
-                func_code_after = astor.to_source(function_pair.after_node)
+                func_code_before = ast.unparse(function_pair.before_node)
+                func_code_after = ast.unparse(function_pair.after_node)
 
                 try:
                     (
@@ -152,8 +151,8 @@ def normalize_code_pair(
     normalizer = CodeNormalizer(idioms=idioms)
     # According to our paper, order is important.
     # We process
-    normalized_before_code = astor.to_source(normalizer.visit(before_node))
-    normalized_after_code = astor.to_source(normalizer.visit(after_node))
+    normalized_before_code = ast.unparse(normalizer.visit(before_node))
+    normalized_after_code = ast.unparse(normalizer.visit(after_node))
     return (
         transform_to_oneline(normalized_before_code),
         transform_to_oneline(normalized_after_code),
