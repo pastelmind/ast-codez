@@ -58,18 +58,14 @@ class FunctionExtractor(StackNodeVisitor):
         """Returns all functions seen while parsing."""
         return self._functions_seen
 
-    def _add_function(self, name: str, node: ast.AST) -> None:
-        if name not in self._functions_seen:
-            self._functions_seen[name] = node
-
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        self._add_function(node.name, node)
+        self._functions_seen.setdefault(node.name, node)
         # Don't call generic_visit() since we don't want to process inner
         # functions or classes
         return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-        self._add_function(node.name, node)
+        self._functions_seen.setdefault(node.name, node)
         # Don't call generic_visit() since we don't want to process inner
         # functions or classes
         return node
@@ -85,7 +81,7 @@ class FunctionExtractor(StackNodeVisitor):
 
         # Methods of classes are stored as <class name>.<method name>
         for method_name, method_node in child_visitor.get_functions_seen().items():
-            self._add_function(f"{node.name}.{method_name}", method_node)
+            self._functions_seen.setdefault(f"{node.name}.{method_name}", method_node)
 
         # Don't call generic_visit() since we already visited them
         return node
