@@ -23,9 +23,32 @@ def normalize_with_idioms(
     code: str, *, idioms: IdiomDatabase
 ) -> tuple[str, ReplacementMap]:
     """Normalizes Python code, skipping those in the `idioms` database."""
-    code_normalizer = CodeNormalizer(idioms=idioms)
-    normalized_code = astor.to_source(code_normalizer.visit(ast.parse(code)))
+    root = ast.parse(code)
+    code_normalizer = CodeNormalizer(
+        identifiers=extract_identifiers(root), idioms=idioms
+    )
+    normalized_code = astor.to_source(code_normalizer.visit(root))
     return normalized_code, code_normalizer.get_replacement_map()
+
+
+def generate_names(
+    prefix: str, exclude: typing.Collection[str]
+) -> typing.Generator[str, None, None]:
+    """Infinite generator that generates names.
+
+    Args:
+        prefix: Prefix for generated names
+        exclude: Collection of names to exclude
+    Yields:
+        Generated names are of the form `<prefix>0`, `<prefix>1`, ...
+        If a generated name already exists in `exclude`, it is skipped.
+    """
+    counter = 0
+    while True:
+        name = prefix + str(counter)
+        if name not in exclude:
+            yield name
+        counter += 1
 
 
 class CodeNormalizer(ast.NodeTransformer):
@@ -37,7 +60,7 @@ class CodeNormalizer(ast.NodeTransformer):
     - We don't override import from because there's no point!
     """
 
-    def __init__(self, idioms: IdiomDatabase):
+    def __init__(self, identifiers: set[str], idioms: IdiomDatabase):
         super().__init__()
         # Note: Since functions are first-class objects in Python, we can't
         # distinguish function names from variable names.
@@ -46,41 +69,50 @@ class CodeNormalizer(ast.NodeTransformer):
         self._literals_seen_int: typing.Dict[int, str] = {}
         self._literals_seen_str: typing.Dict[str, str] = {}
         self._f_strings_seen: typing.Dict[str, str] = {}
+        self._identifier_name_generator = generate_names("IDENTIFIER_", identifiers)
+        self._literal_float_name_generator = generate_names("FLOAT_", identifiers)
+        self._literal_int_name_generator = generate_names("INT_", identifiers)
+        self._literal_str_name_generator = generate_names("STR_", identifiers)
+        self._f_string_name_generator = generate_names("F_STR_", identifiers)
         self._idioms = idioms
 
     def _get_replacement_identifier(self, identifier: str) -> str:
-        assert not re.match(
-            r"^(?:IDENTIFIER|FLOAT|INT|F_STR)_\d+$", identifier
-        ), f"Code already contains identifier {identifier}; normalizing it would destroy its semantics"
-
         if identifier in self._idioms.identifiers:
             return identifier
 
-        return self._identifiers_seen.setdefault(
-            identifier, f"IDENTIFIER_{len(self._identifiers_seen)}"
+        return self._identifiers_seen.get(
+            identifier
+        ) or self._identifiers_seen.setdefault(
+            identifier, next(self._identifier_name_generator)
         )
 
     def _get_replacement_float(self, literal: float) -> str:
-        return self._literals_seen_float.setdefault(
-            literal, f"FLOAT_{len(self._literals_seen_float)}"
+        return self._literals_seen_float.get(
+            literal
+        ) or self._literals_seen_float.setdefault(
+            literal, next(self._literal_float_name_generator)
         )
 
     def _get_replacement_int(self, literal: int) -> str:
-        return self._literals_seen_int.setdefault(
-            literal, f"INT_{len(self._literals_seen_int)}"
+        return self._literals_seen_int.get(
+            literal
+        ) or self._literals_seen_int.setdefault(
+            literal, next(self._literal_int_name_generator)
         )
 
     def _get_replacement_str(self, literal: str) -> str:
-        return self._literals_seen_str.setdefault(
-            literal, f"STR_{len(self._literals_seen_str)}"
+        return self._literals_seen_str.get(
+            literal
+        ) or self._literals_seen_str.setdefault(
+            literal, next(self._literal_str_name_generator)
         )
 
     def _get_replacement_f_string(self, node: ast.JoinedStr) -> str:
         # There is no easy way to compare two AST nodes for equality.
         # Instead we compare their serialized forms
         code = ast.unparse(node)
-        return self._f_strings_seen.setdefault(
-            code, f"F_STR_{len(self._f_strings_seen)}"
+        return self._f_strings_seen.get(code) or self._f_strings_seen.setdefault(
+            code, next(self._f_string_name_generator)
         )
 
     def get_replacement_map(self) -> ReplacementMap:
@@ -145,6 +177,44 @@ class CodeNormalizer(ast.NodeTransformer):
         # So we basically cheat here by replacing the entire f-string with a
         # unique identifier.
         return ast.Name(self._get_replacement_f_string(node), ctx=ast.Load())
+
+
+# Map of AST node class -> instance attributes that contain identifier(s)
+_ATTIBS_TO_CHECK: dict[typing.Type[ast.AST], list[str]] = {
+    ast.FunctionDef: ["name"],
+    ast.AsyncFunctionDef: ["name"],
+    ast.ClassDef: ["name"],
+    ast.ImportFrom: ["module"],
+    ast.Global: ["names"],
+    ast.Nonlocal: ["names"],
+    ast.Attribute: ["attr"],
+    ast.Name: ["id"],
+    ast.ExceptHandler: ["name"],
+    ast.arg: ["arg"],
+    ast.keyword: ["arg"],
+    ast.alias: ["name", "asname"],
+}
+
+
+def extract_identifiers(node: ast.AST) -> set[str]:
+    """Extracts all identifiers within an AST node."""
+    identifiers: set[str] = set()
+
+    # ast.walk() is ~10% faster than a NodeVisitor subclass.
+    # Also, it is free from RecursionError
+    for n in ast.walk(node):
+        try:
+            attr_names = _ATTIBS_TO_CHECK[type(n)]
+        except KeyError:
+            continue
+        for attr_name in attr_names:
+            value = getattr(n, attr_name)
+            if type(value) is str:
+                identifiers.add(value)
+            elif value is not None:
+                identifiers.update(value)
+
+    return identifiers
 
 
 def main():

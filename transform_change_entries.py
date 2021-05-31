@@ -37,7 +37,11 @@ import typing
 
 import jsonlines
 
-from ast_codez_tools.code_normalizer import CodeNormalizer, ReplacementMap
+from ast_codez_tools.code_normalizer import (
+    CodeNormalizer,
+    ReplacementMap,
+    extract_identifiers,
+)
 from ast_codez_tools.file_change_result import FileChangeResult
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
 from ast_codez_tools.gumtree_pydiff import gumtree_diff
@@ -163,7 +167,8 @@ def normalize_code_pair(
 
     NOTE: This modifies `before_node` and `after_node` in place.
     """
-    normalizer = CodeNormalizer(idioms=idioms)
+    identifiers = extract_identifiers(before_node) | extract_identifiers(after_node)
+    normalizer = CodeNormalizer(identifiers=identifiers, idioms=idioms)
     # According to our paper, order is important.
     # We process
     normalized_before_code = ast.unparse(normalizer.visit(before_node))
