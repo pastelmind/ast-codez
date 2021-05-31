@@ -28,8 +28,10 @@ Steps for each change entry:
 """
 
 import ast
+import contextlib
 import io
 import logging
+import sys
 import tokenize
 import typing
 
@@ -64,6 +66,17 @@ def sanitize_code(code: str) -> str:
     Not sure how they snuck into code.
     In any case, this removes it."""
     return code.replace("\0", "")
+
+
+@contextlib.contextmanager
+def set_recursion_limit(n: int):
+    """Context manager that temporarily changes the maximum recursion limit."""
+    old_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(n)
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(old_limit)
 
 
 def extract_normalized_function_changes(
@@ -219,9 +232,13 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(output_file_before, mode="wt", newline="\n") as outfile_before, open(
+    with set_recursion_limit(1500), open(
+        output_file_before, mode="wt", newline="\n"
+    ) as outfile_before, open(
         output_file_after, mode="wt", newline="\n"
-    ) as outfile_after, jsonlines.open(output_file_data, mode="w") as outfile_data:
+    ) as outfile_after, jsonlines.open(
+        output_file_data, mode="w"
+    ) as outfile_data:
         for entry in extract_normalized_function_changes(
             changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
         ):
