@@ -295,5 +295,12 @@ def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        # Use same log format as the one used by Scrapy
+        # Hopefully this makes debugging easier
+        format="{asctime!s} [{name}] {levelname}: {message!s}",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        style="{",
+    )
     main()
