@@ -4,12 +4,10 @@ methods.
 """
 
 import ast
-import sys
 import typing
 
-import astor
-
 from ast_codez_tools.literal_statement_remover import remove_literal_statements
+from ast_codez_tools.stack_node_visitor import StackNodeVisitor
 
 
 def extract_functions(node: ast.AST) -> typing.Dict[str, ast.AST]:
@@ -23,7 +21,7 @@ def extract_functions(node: ast.AST) -> typing.Dict[str, ast.AST]:
     """
     cleaned_node = remove_literal_statements(node)
     extractor = FunctionExtractor()
-    extractor.visit(cleaned_node)
+    extractor.do_visit(cleaned_node)
     return extractor.get_functions_seen()
 
 
@@ -42,7 +40,7 @@ def extract_functions_from_file(filename: str) -> typing.Dict[str, ast.AST]:
     return extract_functions(node)
 
 
-class FunctionExtractor(ast.NodeVisitor):
+class FunctionExtractor(StackNodeVisitor):
     """Extracts top-level functions and methods of classes from a file.
 
     This class is not intended to be reused across multiple Python files.
@@ -57,18 +55,14 @@ class FunctionExtractor(ast.NodeVisitor):
         """Returns all functions seen while parsing."""
         return self._functions_seen
 
-    def _add_function(self, name: str, node: ast.AST) -> None:
-        if name not in self._functions_seen:
-            self._functions_seen[name] = node
-
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        self._add_function(node.name, node)
+        self._functions_seen.setdefault(node.name, node)
         # Don't call generic_visit() since we don't want to process inner
         # functions or classes
         return node
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-        self._add_function(node.name, node)
+        self._functions_seen.setdefault(node.name, node)
         # Don't call generic_visit() since we don't want to process inner
         # functions or classes
         return node
@@ -80,24 +74,26 @@ class FunctionExtractor(ast.NodeVisitor):
         # would call its own visit_ClassDef(), creating a child-child-visitor,
         # which calls its own visit_ClassDef(), ... creating an infinite loop.
         for child_node in ast.iter_child_nodes(node):
-            child_visitor.visit(child_node)
+            child_visitor.do_visit(child_node)
 
         # Methods of classes are stored as <class name>.<method name>
         for method_name, method_node in child_visitor.get_functions_seen().items():
-            self._add_function(f"{node.name}.{method_name}", method_node)
+            self._functions_seen.setdefault(f"{node.name}.{method_name}", method_node)
 
         # Don't call generic_visit() since we already visited them
         return node
 
 
 def main():
+    import sys
+
     functions = extract_functions_from_file(sys.argv[1])
 
     for name, node in functions.items():
         print("-" * 80)
         print(f"name: {name}()")
         print("-" * 80)
-        print(astor.to_source(node))
+        print(ast.unparse(node))
 
 
 if __name__ == "__main__":

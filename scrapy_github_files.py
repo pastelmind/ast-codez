@@ -172,13 +172,20 @@ def generate_file_change_data(
         set(repositories)
     ), f"repo_name contains non-unique repository names: {row=}"
 
+    skipped_commit_count = 0
+
     # If there are too many changes, the scope is probably too wide for us
     MAX_ALLOWED_FILE_CHANGES = 5
     num_changes = len(row["difference"])
     if num_changes > MAX_ALLOWED_FILE_CHANGES:
-        logging.info(
+        logging.debug(
             f"Repo {repositories[0]}, commit {commit_sha} is skipped because it has too many changes ({num_changes} > {MAX_ALLOWED_FILE_CHANGES} files changes)"
         )
+        skipped_commit_count += 1
+        if skipped_commit_count % 100 == 0:
+            logging.info(
+                f"Skipped {skipped_commit_count} commits because they had too many changes (more than {MAX_ALLOWED_FILE_CHANGES} files changed)"
+            )
         return
 
     for diff_index, diff in enumerate(row["difference"]):
@@ -252,6 +259,7 @@ CHUNK_FILE_NAME, CHUNK_NUMBER = select_chunk_file()
 OUTPUT_FILE_PATH = pathlib.Path(
     f"../github_file_changes/file_changes_chunk{CHUNK_NUMBER}.jsonl"
 )
+logging.info(f"Chunk {CHUNK_FILE_NAME} selected, writing to {OUTPUT_FILE_PATH}")
 
 
 class GithubFilesSpider(scrapy.Spider):
@@ -273,7 +281,7 @@ class GithubFilesSpider(scrapy.Spider):
         # down a lot.
         # We explicitly set the initial download delay to a small value to avoid
         # this phenomenon.
-        "AUTOTHROTTLE_START_DELAY": 0.5,
+        "AUTOTHROTTLE_START_DELAY": 0.01,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
         "USER_AGENT": fake_useragent.UserAgent().random,
@@ -300,6 +308,8 @@ class GithubFilesSpider(scrapy.Spider):
             f"Found {len(downloaded_changes)} change entries that were downloaded in a previous run"
         )
 
+        skipped_file_count = 0
+
         for row_index, row in enumerate(
             load_gzipped_lines(file_name=self.CHUNK_FILE_NAME)
         ):
@@ -309,9 +319,14 @@ class GithubFilesSpider(scrapy.Spider):
 
             for fc_num, fc_data in enumerate(file_change_entries, start=1):
                 if is_already_downloaded(downloaded_changes, fc_data):
-                    logging.info(
+                    logging.debug(
                         f"Skipping already downloaded commit {row_index + 1} / {ROW_COUNT}, file {fc_num} / {len(file_change_entries)}"
                     )
+                    skipped_file_count += 1
+                    if skipped_file_count % 1000 == 0:
+                        logging.info(
+                            f"Skipped {skipped_file_count} files that were already downloaded"
+                        )
                     continue
 
                 logging.debug(

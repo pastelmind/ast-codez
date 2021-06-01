@@ -28,15 +28,20 @@ Steps for each change entry:
 """
 
 import ast
+import contextlib
 import io
 import logging
+import sys
 import tokenize
 import typing
 
-import astor
 import jsonlines
 
-from ast_codez_tools.code_normalizer import CodeNormalizer
+from ast_codez_tools.code_normalizer import (
+    CodeNormalizer,
+    ReplacementMap,
+    extract_identifiers,
+)
 from ast_codez_tools.file_change_result import FileChangeResult
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
 from ast_codez_tools.gumtree_pydiff import gumtree_diff
@@ -49,14 +54,17 @@ def yield_changed_entries(
     *, changed_entries_file: str
 ) -> typing.Iterator[FileChangeResult]:
     with jsonlines.open(changed_entries_file, mode="r") as rows:
-        yield from rows
+        yield from typing.cast(typing.Iterator[FileChangeResult], rows)
 
 
-class NormalizedFunctionChangeEntry(typing.NamedTuple):
+class FunctionChangeEntry(typing.TypedDict):
     name: str
     before_code: str
     after_code: str
-    edit_actions: tuple[str, ...]
+    before_code_normalized: str
+    after_code_normalized: str
+    edit_actions: list[str]
+    replacement_map: ReplacementMap
 
 
 def sanitize_code(code: str) -> str:
@@ -66,9 +74,20 @@ def sanitize_code(code: str) -> str:
     return code.replace("\0", "")
 
 
+@contextlib.contextmanager
+def set_recursion_limit(n: int):
+    """Context manager that temporarily changes the maximum recursion limit."""
+    old_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(n)
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(old_limit)
+
+
 def extract_normalized_function_changes(
     *, changed_entries_file: str
-) -> typing.Iterator[NormalizedFunctionChangeEntry]:
+) -> typing.Iterator[FunctionChangeEntry]:
     """
     Yields:
         Tuple of `(func_name, before_code_normalized, after_code_normalized)`
@@ -91,21 +110,48 @@ def extract_normalized_function_changes(
                 after_code=code_after,
                 after_name=f"{repo_name}:{commit_after}:{file_after}",
             ):
-                # Must be computed before calling normalize_code_pair()
-                func_code_before = astor.to_source(function_pair.before_node)
-                func_code_after = astor.to_source(function_pair.after_node)
+                # Very rarely, ast.unparse() fails to convert an AST node
+                # back to Python code.
+                # Since we don't have a nice way of recovering from this,
+                # we'll skip this code instead.
+                try:
+                    func_code_before = ast.unparse(function_pair.before_node)
+                except ValueError as error:
+                    logging.warning(
+                        f"Failed to unparse code; skipping {repo_name}:{commit_before}:{file_before}:{function_pair.func_name}",
+                        exc_info=error,
+                    )
+                    continue
+                try:
+                    func_code_after = ast.unparse(function_pair.after_node)
+                except ValueError as error:
+                    logging.warning(
+                        f"Failed to unparse code; skipping {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
+                        exc_info=error,
+                    )
+                    continue
+
+                # normalize_code_pair() mutates the before_node and after_node
+                # in place. Because of this, it must be called after unparsing
+                # func_code_before and func_code_after
+                (
+                    norm_before_code,
+                    norm_after_code,
+                    replacement_map,
+                ) = normalize_code_pair(
+                    idioms=idioms,
+                    before_node=function_pair.before_node,
+                    after_node=function_pair.after_node,
+                )
 
                 try:
-                    normalized_before_code, normalized_after_code = normalize_code_pair(
-                        idioms=idioms,
-                        before_node=function_pair.before_node,
-                        after_node=function_pair.after_node,
-                    )
+                    norm_before_code = transform_to_oneline(norm_before_code)
+                    norm_after_code = transform_to_oneline(norm_after_code)
                 except TooManyTokensError:
                     continue
 
-                if normalized_before_code == normalized_after_code:
-                    logging.info(
+                if norm_before_code == norm_after_code:
+                    logging.debug(
                         f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}()"
                     )
                     continue
@@ -115,27 +161,35 @@ def extract_normalized_function_changes(
                     code_after=func_code_after,
                 )
 
-                yield NormalizedFunctionChangeEntry(
+                yield FunctionChangeEntry(
                     name=f"{repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
-                    before_code=normalized_before_code,
-                    after_code=normalized_after_code,
-                    edit_actions=tuple(
+                    before_code=func_code_before,
+                    after_code=func_code_after,
+                    before_code_normalized=norm_before_code,
+                    after_code_normalized=norm_after_code,
+                    edit_actions=[
                         edit_action["action"] for edit_action in diff_result["actions"]
-                    ),
+                    ],
+                    replacement_map=replacement_map,
                 )
         except SyntaxError as e:
             # We may have invalid Python code, or Python 2 code
             #
             # Fortunately, we don't need care about hashbang because ast.parse()
             # ignores it
-            logging.info(
+            logging.debug(
                 f"Skipped because of invalid Python syntax in {repo_name}:{commit_after}:{file_after}\n{e.msg}"
             )
+        except:
+            logging.error(
+                f"Error while processing {repo_name}:{commit_after}:{file_after}"
+            )
+            raise
 
 
 def normalize_code_pair(
     *, idioms: IdiomDatabase, before_node: ast.AST, after_node: ast.AST
-) -> typing.Tuple[str, str]:
+) -> typing.Tuple[str, str, ReplacementMap]:
     """Normalizes before_node, after_node using a single CodeNormalizer.
 
     Using the same CodeNormalizer instance allows identical identifiers to be
@@ -143,14 +197,16 @@ def normalize_code_pair(
 
     NOTE: This modifies `before_node` and `after_node` in place.
     """
-    normalizer = CodeNormalizer(idioms=idioms)
+    identifiers = extract_identifiers(before_node) | extract_identifiers(after_node)
+    normalizer = CodeNormalizer(identifiers=identifiers, idioms=idioms)
     # According to our paper, order is important.
     # We process
-    normalized_before_code = astor.to_source(normalizer.visit(before_node))
-    normalized_after_code = astor.to_source(normalizer.visit(after_node))
+    normalized_before_code = ast.unparse(normalizer.visit(before_node))
+    normalized_after_code = ast.unparse(normalizer.visit(after_node))
     return (
-        transform_to_oneline(normalized_before_code),
-        transform_to_oneline(normalized_after_code),
+        normalized_before_code,
+        normalized_after_code,
+        normalizer.get_replacement_map(),
     )
 
 
@@ -203,32 +259,48 @@ def transform_to_oneline(code: str) -> str:
 def main():
     import pathlib
 
+    CHUNK_NUM = int(input("Enter downloaded chunk number: "))
+
     output_dir = pathlib.Path("../dataset/")
-    output_file_before = output_dir / "buggy.txt"
-    output_file_after = output_dir / "fixed.txt"
-    output_file_data = output_dir / "data.jsonl"
+    output_file_before = output_dir / f"buggy{CHUNK_NUM}.txt"
+    output_file_after = output_dir / f"fixed{CHUNK_NUM}.txt"
+    output_file_data = output_dir / f"data{CHUNK_NUM}.jsonl"
     lines_written = 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(output_file_before, mode="wt", newline="\n") as outfile_before, open(
+    with set_recursion_limit(1500), open(
+        output_file_before, mode="wt", newline="\n"
+    ) as outfile_before, open(
         output_file_after, mode="wt", newline="\n"
-    ) as outfile_after, jsonlines.open(output_file_data, mode="w") as outfile_data:
+    ) as outfile_after, typing.cast(
+        jsonlines.Writer, jsonlines.open(output_file_data, mode="w")
+    ) as outfile_data:
         for entry in extract_normalized_function_changes(
-            changed_entries_file="../github_file_changes/file_changes_chunk0.jsonl"
+            changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
         ):
-            outfile_before.write(entry.before_code)
+            outfile_before.write(entry["before_code_normalized"])
             outfile_before.write("\n")
-            outfile_after.write(entry.after_code)
+            outfile_after.write(entry["after_code_normalized"])
             outfile_after.write("\n")
-            outfile_data.write(entry._asdict())
-            lines_written += 1
+            outfile_data.write(entry)
 
-    print(
+            lines_written += 1
+            if lines_written % 500 == 0:
+                logging.info(f"Processed {lines_written} function pairs")
+
+    logging.info(
         f"Wrote {lines_written} lines to {output_file_before}, {output_file_after}, {output_file_data}"
     )
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(
+        level=logging.INFO,
+        # Use same log format as the one used by Scrapy
+        # Hopefully this makes debugging easier
+        format="{asctime!s} [{name}] {levelname}: {message!s}",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        style="{",
+    )
     main()

@@ -47,32 +47,33 @@ def remove_literal_statements(root: ast.AST) -> ast.AST:
         Modified root node
     """
     for node in _ast_walk_lazy(root):
-        try:
-            if isinstance(node.body, list):
-                # 'body' must not be empty
-                node.body = [
-                    child for child in node.body if not is_literal_statement(child)
-                ] or [ast.Pass()]
-        except AttributeError:
-            pass
+        body = getattr(node, "body", None)
+        if type(body) is list:
+            # 'body' must not be empty
+            setattr(
+                node,
+                "body",
+                [child for child in body if not is_literal_statement(child)]
+                or [ast.Pass()],
+            )
 
-        try:
-            if isinstance(node.orelse, list):
-                # 'orelse' can be empty
-                node.orelse = [
-                    child for child in node.orelse if not is_literal_statement(child)
-                ]
-        except AttributeError:
-            pass
+        orelse = getattr(node, "orelse", None)
+        if type(orelse) is list:
+            # 'orelse' can be empty
+            setattr(
+                node,
+                "orelse",
+                [child for child in orelse if not is_literal_statement(child)],
+            )
 
-        try:
-            if isinstance(node.finalbody, list):
-                # 'finalbody' can be empty
-                node.finalbody = [
-                    child for child in node.finalbody if not is_literal_statement(child)
-                ]
-        except AttributeError:
-            pass
+        finalbody = getattr(node, "finalbody", None)
+        if type(finalbody) is list:
+            # 'finalbody' can be empty
+            setattr(
+                node,
+                "finalbody",
+                [child for child in finalbody if not is_literal_statement(child)],
+            )
 
     return root
 
