@@ -57,11 +57,13 @@ def yield_changed_entries(
         yield from typing.cast(typing.Iterator[FileChangeResult], rows)
 
 
-class NormalizedFunctionChangeEntry(typing.NamedTuple):
+class FunctionChangeEntry(typing.TypedDict):
     name: str
     before_code: str
     after_code: str
-    edit_actions: tuple[str, ...]
+    before_code_normalized: str
+    after_code_normalized: str
+    edit_actions: list[str]
     replacement_map: ReplacementMap
 
 
@@ -85,7 +87,7 @@ def set_recursion_limit(n: int):
 
 def extract_normalized_function_changes(
     *, changed_entries_file: str
-) -> typing.Iterator[NormalizedFunctionChangeEntry]:
+) -> typing.Iterator[FunctionChangeEntry]:
     """
     Yields:
         Tuple of `(func_name, before_code_normalized, after_code_normalized)`
@@ -112,20 +114,23 @@ def extract_normalized_function_changes(
                 func_code_before = ast.unparse(function_pair.before_node)
                 func_code_after = ast.unparse(function_pair.after_node)
 
+                (
+                    norm_before_code,
+                    norm_after_code,
+                    replacement_map,
+                ) = normalize_code_pair(
+                    idioms=idioms,
+                    before_node=function_pair.before_node,
+                    after_node=function_pair.after_node,
+                )
+
                 try:
-                    (
-                        normalized_before_code,
-                        normalized_after_code,
-                        replacement_map,
-                    ) = normalize_code_pair(
-                        idioms=idioms,
-                        before_node=function_pair.before_node,
-                        after_node=function_pair.after_node,
-                    )
+                    norm_before_code = transform_to_oneline(norm_before_code)
+                    norm_after_code = transform_to_oneline(norm_after_code)
                 except TooManyTokensError:
                     continue
 
-                if normalized_before_code == normalized_after_code:
+                if norm_before_code == norm_after_code:
                     logging.debug(
                         f"Skipped identical function after normalizing: {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}()"
                     )
@@ -136,13 +141,15 @@ def extract_normalized_function_changes(
                     code_after=func_code_after,
                 )
 
-                yield NormalizedFunctionChangeEntry(
+                yield FunctionChangeEntry(
                     name=f"{repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
-                    before_code=normalized_before_code,
-                    after_code=normalized_after_code,
-                    edit_actions=tuple(
+                    before_code=func_code_before,
+                    after_code=func_code_after,
+                    before_code_normalized=norm_before_code,
+                    after_code_normalized=norm_after_code,
+                    edit_actions=[
                         edit_action["action"] for edit_action in diff_result["actions"]
-                    ),
+                    ],
                     replacement_map=replacement_map,
                 )
         except SyntaxError as e:
@@ -177,8 +184,8 @@ def normalize_code_pair(
     normalized_before_code = ast.unparse(normalizer.visit(before_node))
     normalized_after_code = ast.unparse(normalizer.visit(after_node))
     return (
-        transform_to_oneline(normalized_before_code),
-        transform_to_oneline(normalized_after_code),
+        normalized_before_code,
+        normalized_after_code,
         normalizer.get_replacement_map(),
     )
 
@@ -252,11 +259,11 @@ def main():
         for entry in extract_normalized_function_changes(
             changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
         ):
-            outfile_before.write(entry.before_code)
+            outfile_before.write(entry["before_code_normalized"])
             outfile_before.write("\n")
-            outfile_after.write(entry.after_code)
+            outfile_after.write(entry["after_code_normalized"])
             outfile_after.write("\n")
-            outfile_data.write(entry._asdict())
+            outfile_data.write(entry)
 
             lines_written += 1
             if lines_written % 500 == 0:
