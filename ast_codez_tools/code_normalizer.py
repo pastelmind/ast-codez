@@ -1,8 +1,6 @@
 import ast
 import typing
 
-import astor
-
 from idiom_loader import IdiomDatabase, load_idioms
 
 
@@ -25,7 +23,7 @@ def normalize_with_idioms(
     code_normalizer = CodeNormalizer(
         identifiers=extract_identifiers(root), idioms=idioms
     )
-    normalized_code = astor.to_source(code_normalizer.visit(root))
+    normalized_code = ast.unparse(code_normalizer.visit(root))
     return normalized_code, code_normalizer.get_replacement_map()
 
 
@@ -225,7 +223,7 @@ def main():
 
     idioms = load_idioms()
     for name, node in functions.items():
-        code = astor.to_source(node)
+        code = ast.unparse(node)
         print("-" * 80)
         print(f"{name}()\n")
         print(f'{"Original: ":-<80}')

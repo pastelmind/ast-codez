@@ -87,15 +87,13 @@ class FunctionExtractor(StackNodeVisitor):
 def main():
     import sys
 
-    import astor
-
     functions = extract_functions_from_file(sys.argv[1])
 
     for name, node in functions.items():
         print("-" * 80)
         print(f"name: {name}()")
         print("-" * 80)
-        print(astor.to_source(node))
+        print(ast.unparse(node))
 
 
 if __name__ == "__main__":

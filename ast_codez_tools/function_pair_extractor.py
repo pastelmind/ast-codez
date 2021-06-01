@@ -88,8 +88,6 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None):
     import argparse
     import pathlib
 
-    import astor
-
     parser = argparse.ArgumentParser(
         prog="python -m ast_codez_tools." + pathlib.Path(__file__).stem
     )
@@ -108,8 +106,8 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None):
         after_code=after_code,
         after_name=after_name,
     ):
-        func_before = astor.to_source(before_node)
-        func_after = astor.to_source(after_node)
+        func_before = ast.unparse(before_node)
+        func_after = ast.unparse(after_node)
 
         print("-" * 80)
         print(f"Function name: {func_name}()")
