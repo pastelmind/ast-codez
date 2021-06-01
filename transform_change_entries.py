@@ -110,10 +110,30 @@ def extract_normalized_function_changes(
                 after_code=code_after,
                 after_name=f"{repo_name}:{commit_after}:{file_after}",
             ):
-                # Must be computed before calling normalize_code_pair()
-                func_code_before = ast.unparse(function_pair.before_node)
-                func_code_after = ast.unparse(function_pair.after_node)
+                # Very rarely, ast.unparse() fails to convert an AST node
+                # back to Python code.
+                # Since we don't have a nice way of recovering from this,
+                # we'll skip this code instead.
+                try:
+                    func_code_before = ast.unparse(function_pair.before_node)
+                except ValueError as error:
+                    logging.warning(
+                        f"Failed to unparse code; skipping {repo_name}:{commit_before}:{file_before}:{function_pair.func_name}",
+                        exc_info=error,
+                    )
+                    continue
+                try:
+                    func_code_after = ast.unparse(function_pair.after_node)
+                except ValueError as error:
+                    logging.warning(
+                        f"Failed to unparse code; skipping {repo_name}:{commit_after}:{file_after}:{function_pair.func_name}",
+                        exc_info=error,
+                    )
+                    continue
 
+                # normalize_code_pair() mutates the before_node and after_node
+                # in place. Because of this, it must be called after unparsing
+                # func_code_before and func_code_after
                 (
                     norm_before_code,
                     norm_after_code,
