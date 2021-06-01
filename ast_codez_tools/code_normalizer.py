@@ -1,6 +1,4 @@
 import ast
-import re
-import sys
 import typing
 
 import astor
@@ -129,7 +127,7 @@ class CodeNormalizer(ast.NodeTransformer):
         node.name = self._get_replacement_identifier(node.name)
         return self.generic_visit(node)
 
-    def visit_arg(self, node: ast.arg) -> ast.arg:
+    def visit_arg(self, node: ast.arg) -> ast.AST:
         node.arg = self._get_replacement_identifier(node.arg)
         return self.generic_visit(node)
 
@@ -218,9 +216,8 @@ def extract_identifiers(node: ast.AST) -> set[str]:
 
 
 def main():
+    import sys
     from pprint import pprint
-
-    import astor
 
     from .function_extractor import extract_functions_from_file
 

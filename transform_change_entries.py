@@ -54,7 +54,7 @@ def yield_changed_entries(
     *, changed_entries_file: str
 ) -> typing.Iterator[FileChangeResult]:
     with jsonlines.open(changed_entries_file, mode="r") as rows:
-        yield from rows
+        yield from typing.cast(typing.Iterator[FileChangeResult], rows)
 
 
 class NormalizedFunctionChangeEntry(typing.NamedTuple):
@@ -100,8 +100,6 @@ def extract_normalized_function_changes(
         file_after = row["file_after"]
         code_before = sanitize_code(row["code_before"])
         code_after = sanitize_code(row["code_after"])
-
-        logging.info(f"Processing {repo_name}:{commit_after}:{file_after}")
 
         try:
             for function_pair in extract_function_pairs(
@@ -155,6 +153,11 @@ def extract_normalized_function_changes(
             logging.debug(
                 f"Skipped because of invalid Python syntax in {repo_name}:{commit_after}:{file_after}\n{e.msg}"
             )
+        except:
+            logging.error(
+                f"Error while processing {repo_name}:{commit_after}:{file_after}"
+            )
+            raise
 
 
 def normalize_code_pair(
@@ -243,8 +246,8 @@ def main():
         output_file_before, mode="wt", newline="\n"
     ) as outfile_before, open(
         output_file_after, mode="wt", newline="\n"
-    ) as outfile_after, jsonlines.open(
-        output_file_data, mode="w"
+    ) as outfile_after, typing.cast(
+        jsonlines.Writer, jsonlines.open(output_file_data, mode="w")
     ) as outfile_data:
         for entry in extract_normalized_function_changes(
             changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
@@ -254,9 +257,12 @@ def main():
             outfile_after.write(entry.after_code)
             outfile_after.write("\n")
             outfile_data.write(entry._asdict())
-            lines_written += 1
 
-    print(
+            lines_written += 1
+            if lines_written % 500 == 0:
+                logging.info(f"Processed {lines_written} function pairs")
+
+    logging.info(
         f"Wrote {lines_written} lines to {output_file_before}, {output_file_after}, {output_file_data}"
     )
 

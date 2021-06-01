@@ -4,10 +4,7 @@ methods.
 """
 
 import ast
-import sys
 import typing
-
-import astor
 
 from ast_codez_tools.literal_statement_remover import remove_literal_statements
 from ast_codez_tools.stack_node_visitor import StackNodeVisitor
@@ -88,6 +85,10 @@ class FunctionExtractor(StackNodeVisitor):
 
 
 def main():
+    import sys
+
+    import astor
+
     functions = extract_functions_from_file(sys.argv[1])
 
     for name, node in functions.items():
