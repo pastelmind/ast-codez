@@ -273,7 +273,7 @@ class GithubFilesSpider(scrapy.Spider):
         # down a lot.
         # We explicitly set the initial download delay to a small value to avoid
         # this phenomenon.
-        "AUTOTHROTTLE_START_DELAY": 0.5,
+        "AUTOTHROTTLE_START_DELAY": 0.01,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
         "USER_AGENT": fake_useragent.UserAgent().random,
