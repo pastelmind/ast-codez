@@ -270,9 +270,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with set_recursion_limit(1500), open(
-        output_file_before, mode="wt", newline="\n"
+        output_file_before, mode="wt", newline="\n", encoding="utf8"
     ) as outfile_before, open(
-        output_file_after, mode="wt", newline="\n"
+        output_file_after, mode="wt", newline="\n", encoding="utf8"
     ) as outfile_after, typing.cast(
         jsonlines.Writer, jsonlines.open(output_file_data, mode="w")
     ) as outfile_data:
