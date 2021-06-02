@@ -279,11 +279,19 @@ def main():
         for entry in extract_normalized_function_changes(
             changed_entries_file=f"../github_file_changes/file_changes_chunk{CHUNK_NUM}.jsonl"
         ):
+            try:
+                outfile_data.write(entry)
+            except UnicodeEncodeError:
+                # Skip if an error occurs due to surrogate characters
+                # Example: openstack/oslo.privsep:6b5bbbb1483002811d8d53ed7f3cca9733cc62ab:oslo_privsep/tests/test_comm.py
+                logging.warning(
+                    f"Failed to save entry; skipping {entry['name']}", exc_info=True
+                )
+                continue
             outfile_before.write(entry["before_code_normalized"])
             outfile_before.write("\n")
             outfile_after.write(entry["after_code_normalized"])
             outfile_after.write("\n")
-            outfile_data.write(entry)
 
             lines_written += 1
             if lines_written % 500 == 0:
