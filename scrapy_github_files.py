@@ -284,7 +284,7 @@ class GithubFilesSpider(scrapy.Spider):
         "AUTOTHROTTLE_START_DELAY": 0.01,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 5,
         "COOKIES_ENABLED": False,
-        "USER_AGENT": fake_useragent.UserAgent().random,
+        "USER_AGENT": fake_useragent.UserAgent(verify_ssl=False).random,
         "FEEDS": {
             OUTPUT_FILE_PATH: {
                 "format": "jsonlines",
