@@ -10,10 +10,10 @@ import jsonlines
 import os
 import numpy as np
 
-raw_data_path = "data6.jsonl"
-target_data_path = ""
-code_model_path = "code.model"
-edit_model_path = "edit.model"
+raw_data_path = "chunks/data6.jsonl"
+target_data_path = "embeddings/embedded.npy"
+code_model_path = "doc2vec_weights/code.model"
+edit_model_path = "doc2vec_weights/edit.model"
 
 exists = os.path.exists(code_model_path) and os.path.exists(edit_model_path)
 
@@ -118,7 +118,7 @@ for i in range(len(data)):
 
     embedded[i] = A_vector
 
-np.save('embedded', embedded)
+np.save(target_data_path, embedded)
 
     
 

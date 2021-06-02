@@ -1,17 +1,17 @@
 import networkx as nx
-from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import pairwise_distances
 import numpy as np
 import pandas as pd
 
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from scipy import stats
 
 import matplotlib.pyplot as plt 
 import seaborn as sns
 from sklearn.cluster import KMeans
-
+from sklearn.mixture import GaussianMixture
+import jsonlines
 
 # HYPER-PARAMETERS
 seed = 96
@@ -26,13 +26,7 @@ def most_neighbours(clusters, indices, key, metric = "cosine"):
   return i, indices[key][i]
 
 
-def get_K_embeds(embeds, K=16, seed=92):
-
-  gmm = GaussianMixture(n_components=K, covariance_type='full', random_state=seed)
-  # kmeans = KMeans(n_clusters=K, init="k-means++", random_state=seed)
-
-  gmm_labels = gmm.fit_predict(embeds)
-  # kmeans_labels = kmeans.fit_transform(embeds)
+def get_K_embeds(embeds, labels, K):
 
   clusters = {}
   indices = {}
@@ -41,10 +35,9 @@ def get_K_embeds(embeds, K=16, seed=92):
     clusters[i] = []
     indices[i] = []
 
-  for i in range(len(gmm_labels)):
-    clusters[gmm_labels[i]].append(embeds[i])
-    indices[gmm_labels[i]].append(i)
-
+  for i in range(len(labels)):
+    clusters[labels[i]].append(embeds[i])
+    indices[labels[i]].append(i)
 
   K_embeds = {}
   for i in range(K):
@@ -54,34 +47,56 @@ def get_K_embeds(embeds, K=16, seed=92):
   return K_embeds
 
 
-
-
-
-embs = np.load('embedded.npy')
+embs = np.load('embeddings/embedded6.npy')
 
 n_clusters = 8
 
+kmeans = KMeans(n_clusters=n_clusters, init="k-means++", random_state=seed)
+gmm = GaussianMixture(n_components=n_clusters, covariance_type='full', random_state=seed)
 
-model_name = "kmeans"
-
-kmeans = KMeans(n_clusters=n_clusters,
-                    init="k-means++",
-                    random_state=seed)
-kmeans_data = kmeans.fit_transform(embs)
+gmm_labels = gmm.fit_predict(embs)
+kmeans_data = kmeans.fit_predict(embs)
 
 
 
-pca = PCA(n_components=50, random_state=seed)
-pca_data = pca.fit_transform(embs)
+# Sampling
+K_examples = get_K_embeds(embs, gmm_labels, n_clusters)
+
+
+raw_data_path = "chunks/data6.jsonl"
+
+with jsonlines.open(raw_data_path) as reader:
+  data = [line for line in reader]
+
+representative = []
+for i in K_examples.keys():
+  index = K_examples[i][1]
+  representative.append( data[index] )
+
+
+with jsonlines.open('samples/samples.jsonl', mode='w') as writer:
+  for repr in representative:
+    writer.write(repr)
+
+
+
+# pca = PCA(random_state=seed)
+# pca_data = pca.fit_transform(embs)
+# proj_embs = pca_data
 
 tsne = TSNE(n_components=2, random_state=seed)
-proj_embs = tsne.fit_transform(pca_data)
+proj_embs = tsne.fit_transform(embs)
 
 
 data = pd.DataFrame()
 data["x"] = proj_embs[:,0]
 data["y"] = proj_embs[:,1]
-data["cluster"] = np.argmin(kmeans_data, 1)
+
+data["cluster"] = kmeans_data
+model_name = "kmeans"
+# model_name = "gmm"
+# data["cluster"] = gmm_labels
+
 
 plt.figure(figsize=(12, 12))
 sns_plot = sns.scatterplot(
@@ -92,5 +107,5 @@ sns_plot = sns.scatterplot(
     legend=None,
     alpha=0.9
 )
-sns_plot.get_figure().savefig(model_name + "_tsne+pca.jpeg")
+sns_plot.get_figure().savefig("visuals/" + model_name + "_" + str(n_clusters) + "_tsne.jpeg")
 
