@@ -43,6 +43,7 @@ from ast_codez_tools.code_normalizer import (
     extract_identifiers,
 )
 from ast_codez_tools.file_change_result import FileChangeResult
+from ast_codez_tools.function_change_entry import FunctionChangeEntry
 from ast_codez_tools.function_pair_extractor import extract_function_pairs
 from ast_codez_tools.gumtree_pydiff import gumtree_diff
 from idiom_loader import IdiomDatabase, load_idioms
@@ -55,16 +56,6 @@ def yield_changed_entries(
 ) -> typing.Iterator[FileChangeResult]:
     with jsonlines.open(changed_entries_file, mode="r") as rows:
         yield from typing.cast(typing.Iterator[FileChangeResult], rows)
-
-
-class FunctionChangeEntry(typing.TypedDict):
-    name: str
-    before_code: str
-    after_code: str
-    before_code_normalized: str
-    after_code_normalized: str
-    edit_actions: list[str]
-    replacement_map: ReplacementMap
 
 
 def sanitize_code(code: str) -> str:
