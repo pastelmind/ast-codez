@@ -148,3 +148,6 @@ cython_debug/
 .history/
 
 data/
+
+chunks/data_all.jsonl
+embeddings/embedded_all.npy

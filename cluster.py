@@ -15,52 +15,47 @@ import jsonlines
 
 # HYPER-PARAMETERS
 seed = 96
-n_clusters = 8
-THRESHOLD = 0.0069 # of max distance within cluster
+n_clusters = 5
+THRESHOLD = 0.4 # of max distance within cluster
 
-def most_neighbours(clusters, indices, key, metric = "cosine"):
-  cluster = clusters[key]
-  distances = pairwise_distances(cluster, metric = metric)
+def choose_node(cluster, indices, key):
+  distances = pairwise_distances(cluster, metric = "cosine")
   G = nx.from_numpy_array(np.multiply(distances, ((distances > THRESHOLD) - np.eye(len(cluster)))))
-  i = sorted(G.degree, key=lambda x: x[1], reverse=True)[0][0]
-  return i, indices[key][i]
+  i = nx.pagerank(G)
+  i = max(i, key=i.get)
+  return indices[key][i]
 
 
-def get_K_embeds(embeds, labels, K):
+def get_K_samples(embeds, labels, K):
 
-  clusters = {}
   indices = {}
-
   for i in range(K):
-    clusters[i] = []
     indices[i] = []
 
   for i in range(len(labels)):
-    clusters[labels[i]].append(embeds[i])
     indices[labels[i]].append(i)
 
   K_embeds = {}
   for i in range(K):
-    local_i, global_i = most_neighbours(clusters, indices, i)
-    K_embeds[i] = (clusters[i][local_i], global_i)
+    cluster = [embeds[ind] for ind, cl in enumerate(labels) if cl == i] 
+    K_embeds[i] = choose_node(cluster, indices, i)
 
   return K_embeds
 
-
+print('Loading embeddings...')
 embs = np.load('embeddings/embedded6.npy')
-
-n_clusters = 8
 
 kmeans = KMeans(n_clusters=n_clusters, init="k-means++", random_state=seed)
 gmm = GaussianMixture(n_components=n_clusters, covariance_type='full', random_state=seed)
 
-gmm_labels = gmm.fit_predict(embs)
-kmeans_data = kmeans.fit_predict(embs)
+print('Clustering...')
+# gmm_labels = gmm.fit_predict(embs)
+kmeans_labels = kmeans.fit_predict(embs)
 
 
-
+print('Sampling...')
 # Sampling
-K_examples = get_K_embeds(embs, gmm_labels, n_clusters)
+K_examples = get_K_samples(embs, kmeans_labels, n_clusters)
 
 
 raw_data_path = "chunks/data6.jsonl"
@@ -70,7 +65,7 @@ with jsonlines.open(raw_data_path) as reader:
 
 representative = []
 for i in K_examples.keys():
-  index = K_examples[i][1]
+  index = K_examples[i]
   representative.append( data[index] )
 
 
@@ -80,19 +75,18 @@ with jsonlines.open('samples/samples.jsonl', mode='w') as writer:
 
 
 
-# pca = PCA(random_state=seed)
-# pca_data = pca.fit_transform(embs)
-# proj_embs = pca_data
+pca = PCA(random_state=seed)
+pca_data = pca.fit_transform(embs)
 
 tsne = TSNE(n_components=2, random_state=seed)
-proj_embs = tsne.fit_transform(embs)
+proj_embs = tsne.fit_transform(pca_data)
 
 
 data = pd.DataFrame()
 data["x"] = proj_embs[:,0]
 data["y"] = proj_embs[:,1]
 
-data["cluster"] = kmeans_data
+data["cluster"] = kmeans_labels
 model_name = "kmeans"
 # model_name = "gmm"
 # data["cluster"] = gmm_labels
@@ -107,5 +101,5 @@ sns_plot = sns.scatterplot(
     legend=None,
     alpha=0.9
 )
-sns_plot.get_figure().savefig("visuals/" + model_name + "_" + str(n_clusters) + "_tsne.jpeg")
+sns_plot.get_figure().savefig("visuals/" + model_name + "_" + str(n_clusters) + "_tsne+pca.jpeg")
 

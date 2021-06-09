@@ -10,8 +10,8 @@ import jsonlines
 import os
 import numpy as np
 
-raw_data_path = "chunks/data6.jsonl"
-target_data_path = "embeddings/embedded.npy"
+raw_data_path = "chunks/data_all.jsonl"
+target_data_path = "embeddings/embedded_all.npy"
 code_model_path = "doc2vec_weights/code.model"
 edit_model_path = "doc2vec_weights/edit.model"
 
@@ -55,12 +55,12 @@ if(not exists):
 
 
     # model for code before and after
-    code_model = Doc2Vec(vector_size=code_config['vec_size'],
-                    alpha=code_config['alpha'], 
-                    min_alpha=0.00025,
-                    min_count=1,
-                    dm = 1,
-                    seed = seed)
+    # code_model = Doc2Vec(vector_size=code_config['vec_size'],
+    #                 alpha=code_config['alpha'], 
+    #                 min_alpha=0.00025,
+    #                 min_count=1,
+    #                 dm = 1,
+    #                 seed = seed)
 
     edit_model = Doc2Vec(vector_size=edit_config['vec_size'],
                     alpha=edit_config['alpha'], 
@@ -69,18 +69,18 @@ if(not exists):
                     dm = 1,
                     seed = seed)
     
-    code_model.build_vocab(code_data)
+    # code_model.build_vocab(code_data)
     edit_model.build_vocab(edit_data)
 
     # code before and after
-    for epoch in range(code_config['epochs']):
-        print('model 1 iteration {0}'.format(epoch))
-        code_model.train(code_data,
-                    total_examples=code_model.corpus_count,
-                    epochs=code_model.epochs)
+    # for epoch in range(code_config['epochs']):
+    #     print('model 1 iteration {0}'.format(epoch))
+    #     code_model.train(code_data,
+    #                 total_examples=code_model.corpus_count,
+    #                 epochs=code_model.epochs)
         
-        code_model.alpha -= 0.0002
-        code_model.min_alpha = code_model.alpha
+    #     code_model.alpha -= 0.0002
+    #     code_model.min_alpha = code_model.alpha
     
     # edit actions
     for epoch in range(edit_config['epochs']):
@@ -93,7 +93,7 @@ if(not exists):
         edit_model.min_alpha = edit_model.alpha
 
 
-    code_model.save(code_model_path)
+    # code_model.save(code_model_path)
     edit_model.save(edit_model_path)
 
 else:
