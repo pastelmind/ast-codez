@@ -4,10 +4,11 @@ This repository is the codebase for our project, **Mutation Testing Based on Min
 We are Team 1 of CS453 Automated Software Testing course at KAIST.
 
 For our final presentation, see [`final-presentation.pdf`](./final-presentation.pdf).
+For our final report, see [`final-presentation.pdf`](./final-report.pdf).
 
 ## Organization
 
-Our work consists of: Data mining, data preparation, and clustering.
+This repository contains code and data for: Data mining/crawling, preprocessing, and clustering.
 
 ### Data preparation
 
@@ -39,4 +40,4 @@ For each changed file, we extracted pairs of functions changed by the commit. We
 
 ### Training / Clustering
 
-To be added. See the `dat-clustering-trained-model` branch for our work on clustering.
+(Code is added, description needs to be added)
