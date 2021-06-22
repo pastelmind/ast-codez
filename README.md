@@ -3,6 +3,8 @@
 This repository is the codebase for our project, **Mutation Testing Based on Mining GitHub Commits**.
 We are Team 1 of CS453 Automated Software Testing course at KAIST.
 
+For our final presentation, see [`final-presentation.pdf`](./final-presentation.pdf).
+
 ## Organization
 
 Our work consists of: Data mining, data preparation, and clustering.
